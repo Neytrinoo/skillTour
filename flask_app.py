@@ -2,7 +2,8 @@ from flask import Flask, request
 import logging
 import json
 import calendar
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from string import ascii_letters
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -51,7 +52,7 @@ def handle_dialog(req, res):
                       '"Удалить экскурсию <номер экскурсии>",\n"Редактировать экскурсию <номер экскурсии>",\n"Добавить экскурсию"'
         res['response']['buttons'] = get_suggests(user_id)
         return
-    if req['request']['command'].lower() == 'добавить экскурсию' and now_command != 'add excursion':
+    if 'добавить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and now_command != 'add excursion':
         now_command = 'add excursion'
         if stage == 1:
             res['response']['text'] = 'Укажите точный адрес начала экскурсии'
@@ -67,16 +68,108 @@ def handle_dialog(req, res):
             return
         elif stage == 2:
             date = get_date(req)
-            if (date - datetime.utcnow()).days >= 0:
-                res['response']['text'] = 'Вот дата ' + str(date)
+            if date > datetime.now(timezone.utc).astimezone():
+                res['response']['text'] = 'Вот дата ' + date.strftime('%d.%m.%Y, %H:%M') + '\nТеперь введите пароль для удаления и редактирования экскурсии. Он нужен, ' \
+                                                                                           'чтобы никто, кроме Вас, не смог управлять вашей экскурсией.\n' \
+                                                                                           'Пароль должен быть длиной не менее 8 символов. Может содержать латинские' \
+                                                                                           ' символы, цифры, пробелы и следующие знаки: "_", "-", ".", ",", ":", ";", "@"' \
+                                                                                           ', "\'", "\""'
+                stage += 1
             else:
-                res['response']['text'] = 'Введите дату еще раз'
+                res['response']['text'] = 'Введенная дата некорректна. Введите дату еще раз'
+        elif stage == 3:
+            password_status = check_password(req)
+            if password_status[1]:
+                res['response']['text'] = 'Пароль успешно добавлен. Теперь введите ФИО экскурсовода'
+                stage += 1
+            else:
+                res['response']['text'] = password_status[0]
+            return
+        elif stage == 4:
+            name = check_name(req)
+            if name[1]:
+                res['response']['text'] = 'Личные данные распознаны: ' + name[0] + '. Теперь введите название вашей экскурсии. Например, "Прага. Старый город"'
+                stage += 1
+            else:
+                res['response']['text'] = name[0]
+            return
+        elif stage == 5:
+            excursion_name = check_excursion_name(req)
+            if excursion_name[1]:
+                res['response']['text'] = 'Название экскурсии успешно добавлено: ' + excursion_name[
+                    0] + '\nТеперь кратко опишите, о чем ваша экскурсия. Какие места будут затронуты и ' \
+                         'т.д. Например:\n"Экскурсия по Старому городу в Праге - удивительно ' \
+                         'захватывающая. Во время экскурсии мы посетим такие знаменитые места, как ' \
+                         'Карлов мост, Староместсая площадь с ратушей, Тынский храм и Пороховая башня.' \
+                         ' Во время экскурсии будет время сфотографироваться со всеми перечисленными ' \
+                         'достопримечательностями, а также будет время перекусить."'
+                stage += 1
+            else:
+                res['response']['text'] = excursion_name[0]
+            return
+        elif stage == 6:
+            excursion_description = check_excursion_description(req)
+            if excursion_description[1]:
+                res['response']['text'] = 'Описание успешно добавлено. Теперь введите среднюю продолжительность экскурсии'
+                stage += 1
+            else:
+                res['response']['text'] = excursion_description[0]
+            return
+
+
+def check_excursion_description(req):
+    excursion_description = req['request']['original_utterance']
+    if len(excursion_description) > 1500:
+        return ['Превышено допустимое количество символов: 1500. Пожалуйста, повторите ввод', False]
+    return [excursion_description, True]
+
+
+# Проверка введенного названия экскурсии на длину
+def check_excursion_name(req):
+    excursion_name = req['request']['original_utterance']
+    if len(excursion_name) > 200:
+        return ['Превышена допустимое количество символов: 200. Пожалуйста, повторите ввод', False]
+    return [excursion_name, True]
+
+
+# Проверка введенного имени экскурсовода
+def check_name(req):
+    for entity in req['request']['nlu']['entities']:
+        if entity['type'] == 'YANDEX.FIO':
+            name = ''
+            if 'first_name' in entity['value']:
+                name += entity['value']['first_name'][0].upper() + entity['value']['first_name'][1:] + ' '
+            else:
+                return ['Имя не распознано. Повторите ввод', False]
+            if 'last_name' in entity['value']:
+                name += entity['value']['last_name'][0].upper() + entity['value']['last_name'][1:] + ' '
+            else:
+                return ['Фамилия не распознана. Повторите ввод', False]
+            if 'patronymic_name' in entity['value']:
+                name += entity['value']['patronymic_name'][0].upper() + entity['value']['patronymic_name'][1:] + ' '
+            return [name, True]
+    return ['Введенные данные не распознаны. Повторите ввод', False]
+
+
+# Проверка правильности ввода пароля
+def check_password(req):
+    valid_characters = list(ascii_letters) + [' ', '_', '-', '.', ',', ':', ';', '@', '\'', '"']
+    password = req['request']['original_utterance']
+    try:
+        if len(password) < 8:
+            return ['Пароль слишком короткий. Повторите ввод', False]
+        for symbol in password:
+            if symbol not in valid_characters and not symbol.isdigit():
+                return ['В пароле присутствуют недопустимые символы. Повторите ввод', False]
+        return [password, True]
+    except Exception as e:
+        return ['Введенный пароль некорректен. Повторите ввод', False]
 
 
 def get_date(req):
     for entity in req['request']['nlu']['entities']:
         if entity['type'] == 'YANDEX.DATETIME':
-            now_date = datetime.now()
+            now_date = datetime.now(timezone.utc).astimezone()
             # Если год задан относительно, то добавляем к текущей дате 365 дней. Больше нельзя, т.к. ограничение на дату - год вперед
             if 'year_is_relative' in entity['value']:
                 if entity['value']['year_is_relative']:
