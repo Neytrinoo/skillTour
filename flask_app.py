@@ -11,6 +11,7 @@ sessionStorage = {}
 
 now_command = 'nothing'
 stage = 1
+stage_sile = 1
 
 
 @app.route('/post', methods=['POST'])
@@ -32,7 +33,7 @@ def main():
 
 
 def handle_dialog(req, res):
-    global now_command, stage
+    global now_command, stage, stage_sile
     user_id = req['session']['user_id']
 
     if req['session']['new']:
@@ -59,9 +60,11 @@ def handle_dialog(req, res):
             return
     if now_command == 'add excursion':
         if stage == 1:
+            sessionStorage[user_id]['add_excursion'] = {}
             address = get_address(req)
             if address:
                 res['response']['text'] = 'Ваш адрес распознан. Это ' + address + '. Теперь введите точную дату проведения экскурсии'
+                sessionStorage[user_id]['add_excursion']['address'] = address
                 stage += 1
             else:
                 res['response']['text'] = 'Введенный адрес некорректен или недостаточно точен. Повторите попытку'
@@ -74,6 +77,7 @@ def handle_dialog(req, res):
                                                                                            'Пароль должен быть длиной не менее 8 символов. Может содержать латинские' \
                                                                                            ' символы, цифры, пробелы и следующие знаки: "_", "-", ".", ",", ":", ";", "@"' \
                                                                                            ', "\'", "\""'
+                sessionStorage[user_id]['add_excursion']['date'] = date
                 stage += 1
             else:
                 res['response']['text'] = 'Введенная дата некорректна. Введите дату еще раз'
@@ -81,6 +85,7 @@ def handle_dialog(req, res):
             password_status = check_password(req)
             if password_status[1]:
                 res['response']['text'] = 'Пароль успешно добавлен. Теперь введите ФИО экскурсовода'
+                sessionStorage[user_id]['add_excursion']['password'] = password_status[0]
                 stage += 1
             else:
                 res['response']['text'] = password_status[0]
@@ -89,6 +94,7 @@ def handle_dialog(req, res):
             name = check_name(req)
             if name[1]:
                 res['response']['text'] = 'Личные данные распознаны: ' + name[0] + '. Теперь введите название вашей экскурсии. Например, "Прага. Старый город"'
+                sessionStorage[user_id]['add_excursion']['name'] = name[0]
                 stage += 1
             else:
                 res['response']['text'] = name[0]
@@ -103,6 +109,7 @@ def handle_dialog(req, res):
                          'Карлов мост, Староместсая площадь с ратушей, Тынский храм и Пороховая башня.' \
                          ' Во время экскурсии будет время сфотографироваться со всеми перечисленными ' \
                          'достопримечательностями, а также будет время перекусить."'
+                sessionStorage[user_id]['add_excursion']['excursion_name'] = excursion_name[0]
                 stage += 1
             else:
                 res['response']['text'] = excursion_name[0]
@@ -111,10 +118,98 @@ def handle_dialog(req, res):
             excursion_description = check_excursion_description(req)
             if excursion_description[1]:
                 res['response']['text'] = 'Описание успешно добавлено. Теперь введите среднюю продолжительность экскурсии'
+                sessionStorage[user_id]['add_excursion']['excursion_description'] = excursion_description[0]
                 stage += 1
             else:
                 res['response']['text'] = excursion_description[0]
             return
+        elif stage == 7:
+            time = check_excursion_duration(req)
+            if time:
+                res['response']['text'] = 'Продолжительность успешно добавлена. Теперь опишите по-подробнее точное место встречи. Укажите какие-нибудь опознавательные признаки.' \
+                                          ' Например, "Большой дуб рядом с трамвайной остоновкой"'
+                sessionStorage[user_id]['add_excursion']['excursion_duration'] = [time[0], time[1]]
+                stage += 1
+            else:
+                res['response']['text'] = 'Введенная продолжительность некорректна. Пожалуйста, повторите ввод'
+            return
+        elif stage == 8:
+            place_description = check_place_description(req)
+            if place_description[1]:
+                res['response']['text'] = 'Описание успешно добавлено. Теперь нужно указать стоимость экскурсии. Но для начала выберите валюту: "рубль", "евро", "доллар"'
+                sessionStorage[user_id]['add_excursion']['place_description'] = place_description[0]
+                stage += 1
+            else:
+                res['response']['text'] = place_description[0]
+            return
+        elif stage == 9:
+            if stage_sile == 1:
+                currency = check_currency(req)
+                # Сначала нужно указать валюту: евро, доллар, рубль
+                if currency:
+                    res['response']['text'] = 'Валюта успешно задана. Теперь укажите стоимость экскурсии в данной валюте'
+                    sessionStorage[user_id]['add_excursion']['currency'] = currency
+                    stage_sile += 1
+                else:
+                    res['response']['text'] = 'Введенная валюта некорректна. Пожалуйста, повторите попытку'
+                return
+            elif stage_sile == 2:
+                # Теперь указываем стоимость
+                sile = check_sile(req)
+                if sile:
+                    res['response']['text'] = 'Отлично! Стоимость задана. Остался последний шаг: укажите номер телефона экскурсовода'
+                    stage_sile = 1
+                    sessionStorage[user_id]['add_excursion']['sile'] = sile
+                    stage += 1
+                else:
+                    res['response']['text'] = 'Введенная сумма некорректна. Пожалуйста, повторите попытку'
+                return
+        elif stage == 10:
+            telephon_number = req['request']['original_utterance']
+            sessionStorage[user_id]['add_excursion']['telephon_number'] = telephon_number
+            res['response']['text'] = 'Отлично! Экскурсия успешно добавлена! Теперь другие пользователи смогут без труда ее найти\n' + str(sessionStorage[user_id]['add_excursion'])
+            stage = 1
+            return
+
+
+def check_sile(req):
+    sile = False
+    for entity in req['request']['nlu']['entities']:
+        if entity['type'] == 'YANDEX.NUMBER':
+            sile = entity['value']
+            return sile
+    return sile
+
+
+def check_currency(req):
+    currency = False
+    if 'рубль' in req['request']['nlu']['tokens']:
+        currency = 'рубль'
+    elif 'доллар' in req['request']['nlu']['tokens'] or 'долар' in req['request']['nlu']['tokens']:
+        currency = 'доллар'
+    elif 'евро' in req['request']['nlu']['tokens']:
+        currency = 'евро'
+    return currency
+
+
+def check_place_description(req):
+    place_description = req['request']['original_utterance']
+    if len(place_description) > 500:
+        return ['Превышено допустимое количество символов: 500. Пожалуйста, повторите ввод', False]
+    return [place_description, True]
+
+
+def check_excursion_duration(req):
+    for entity in req['request']['nlu']['entities']:
+        if entity['type'] == 'YANDEX.DATETIME':
+            hour = 0
+            minute = 0
+            if 'hour' in entity['value']:
+                hour = entity['value']['hour']
+            if 'minute' in entity['value']:
+                minute = entity['value']['minute']
+            return [hour, minute]
+    return False
 
 
 def check_excursion_description(req):
