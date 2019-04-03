@@ -4,8 +4,14 @@ import json
 import calendar
 from datetime import datetime, timedelta, timezone
 from string import ascii_letters
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
+from config import Config
 
 app = Flask(__name__)
+db = SQLAlchemy(app)
+migrate = Migrate(app, db)
+app.config.from_object(Config)
 logging.basicConfig(level=logging.INFO)
 sessionStorage = {}
 
@@ -128,7 +134,7 @@ def handle_dialog(req, res):
             if time:
                 res['response']['text'] = 'Продолжительность успешно добавлена. Теперь опишите по-подробнее точное место встречи. Укажите какие-нибудь опознавательные признаки.' \
                                           ' Например, "Большой дуб рядом с трамвайной остоновкой"'
-                sessionStorage[user_id]['add_excursion']['excursion_duration'] = [time[0], time[1]]
+                sessionStorage[user_id]['add_excursion']['excursion_duration'] = [str(time[0]), str(time[1])]
                 stage += 1
             else:
                 res['response']['text'] = 'Введенная продолжительность некорректна. Пожалуйста, повторите ввод'
@@ -165,10 +171,20 @@ def handle_dialog(req, res):
                     res['response']['text'] = 'Введенная сумма некорректна. Пожалуйста, повторите попытку'
                 return
         elif stage == 10:
-            telephon_number = req['request']['original_utterance']
-            sessionStorage[user_id]['add_excursion']['telephon_number'] = telephon_number
+            telephone_number = req['request']['original_utterance']
+            sessionStorage[user_id]['add_excursion']['telephon_number'] = telephone_number
             res['response']['text'] = 'Отлично! Экскурсия успешно добавлена! Теперь другие пользователи смогут без труда ее найти\n' + str(sessionStorage[user_id]['add_excursion'])
+            excursion = Excursion(address=sessionStorage[user_id]['add_excursion']['address'], date=sessionStorage[user_id]['add_excursion']['date'],
+                                  name=sessionStorage[user_id]['add_excursion']['name'], excursion_name=sessionStorage[user_id]['add_excursion']['excursion_name'],
+                                  excursion_description=sessionStorage[user_id]['add_excursion']['excursion_description'],
+                                  excursion_duration=':'.join(sessionStorage[user_id]['add_excursion']['excursion_duration']),
+                                  place_description=sessionStorage[user_id]['add_excursion']['place_description'], currency=sessionStorage[user_id]['add_excursion']['currency'],
+                                  sile=sessionStorage[user_id]['add_excursion']['sile'])
+            excursion.set_password(sessionStorage[user_id]['add_excursion']['password'])
+            db.session.add(excursion)
+            db.session.commit()
             stage = 1
+            res['response']['text'] += str(Excursion.query.filter_by(id=1).first())
             return
 
 
@@ -177,6 +193,8 @@ def check_sile(req):
     for entity in req['request']['nlu']['entities']:
         if entity['type'] == 'YANDEX.NUMBER':
             sile = entity['value']
+            if len(str(sile)) > 8:
+                return False
             return sile
     return sile
 
@@ -351,3 +369,5 @@ def get_suggests(user_id):
 
 if __name__ == '__main__':
     app.run()
+
+from models import Excursion
