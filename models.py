@@ -15,6 +15,8 @@ class Excursion(db.Model):
     currency = db.Column(db.String(10))
     sile = db.Column(db.String(8))
     telephone_number = db.Column(db.String(30))
+    number = db.Column(db.Integer)
+    city = db.Column(db.String(100))
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

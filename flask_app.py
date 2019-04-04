@@ -7,6 +7,9 @@ from string import ascii_letters
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from config import Config
+import requests
+from requests import post
+from get_params import get_params
 
 app = Flask(__name__)
 db = SQLAlchemy(app)
@@ -14,8 +17,9 @@ migrate = Migrate(app, db)
 app.config.from_object(Config)
 logging.basicConfig(level=logging.INFO)
 sessionStorage = {}
+map_api_server = "http://static-maps.yandex.ru/1.x/"
 
-now_command = 'nothing'
+now_command = False
 stage = 1
 stage_sile = 1
 
@@ -38,6 +42,30 @@ def main():
     return json.dumps(response)
 
 
+# Поиск координат по названию города
+def search_city(city):
+    geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
+    geocoder_params = {'geocode': city, 'format': 'json'}
+    response = requests.get(geocoder_api_server, params=geocoder_params)
+    json_response = response.json()
+    longitude, lattitude, w, h = get_params(json_response)
+    return [longitude, lattitude, w, h]
+
+
+# Получаем карту и добавляем эту картинку в Алису
+def get_map(longitude, lattitude, w, h):
+    map_params = {
+        "ll": ",".join([str(longitude), str(lattitude)]),
+        'spn': ",".join([str(w), str(h)]),
+        "l": 'sat,skl'
+    }
+    response = requests.get(map_api_server, params=map_params)
+    url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
+    files = {'file': response.content}
+    image = post(url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
+    return image['image']['id']
+
+
 def handle_dialog(req, res):
     global now_command, stage, stage_sile
     user_id = req['session']['user_id']
@@ -56,21 +84,47 @@ def handle_dialog(req, res):
                       'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
                       'добавлении. Вот что я могу:\n"Показать все экскурсии", \n' \
                       '"Показать ближайшие экскурсии",\n"Показать экскурсии в <город>",\n"Получить экскурсию <номер экскурсии>",\n' \
-                      '"Удалить экскурсию <номер экскурсии>",\n"Редактировать экскурсию <номер экскурсии>",\n"Добавить экскурсию"'
+                      '"Удалить экскурсию <номер экскурсии>",\n"Редактировать экскурсию <город экскурсии> <номер экскурсии в этом городе>",\n"Добавить экскурсию"'
         res['response']['buttons'] = get_suggests(user_id)
         return
-    if 'добавить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and now_command != 'add excursion':
+    if 'добавить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and not now_command:
         now_command = 'add excursion'
         if stage == 1:
             res['response']['text'] = 'Укажите точный адрес начала экскурсии'
             return
+    if 'показать' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
+        city = get_city(req)
+        now_command = 'show excursion in city'
+        if not city:
+            res['response']['text'] = 'Город не распознан. Пожалуйста, повторите ввод'
+            return
+        sessionStorage[user_id]['long_lat'] = search_city(city)
+        res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту с экскурсиями'
+        return
+
+    if now_command == 'show excursion in city':
+        if 'показать' in req['request']['nlu']['tokens']:
+            res['response']['text'] = 's'
+            res['response']['card'] = {}
+            res['response']['card']['type'] = 'BigImage'
+            res['response']['card']['title'] = 'Да'
+            res['response']['card']['image_id'] = get_map(sessionStorage[user_id]['long_lat'][0], sessionStorage[user_id]['long_lat'][1],
+                                                          sessionStorage[user_id]['long_lat'][2], sessionStorage[user_id]['long_lat'][3])
+            res['response']['text'] = 'Yes'
+            del sessionStorage[user_id]['long_lat']
+            now_command = False
+        else:
+            res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
+        return
+
     if now_command == 'add excursion':
         if stage == 1:
             sessionStorage[user_id]['add_excursion'] = {}
             address = get_address(req)
             if address:
-                res['response']['text'] = 'Ваш адрес распознан. Это ' + address + '. Теперь введите точную дату проведения экскурсии'
-                sessionStorage[user_id]['add_excursion']['address'] = address
+                res['response']['text'] = 'Ваш адрес распознан. Это ' + address[0] + '. Теперь введите точную дату проведения экскурсии'
+                sessionStorage[user_id]['add_excursion']['address'] = address[0]
+                sessionStorage[user_id]['add_excursion']['city'] = address[1]
                 stage += 1
             else:
                 res['response']['text'] = 'Введенный адрес некорректен или недостаточно точен. Повторите попытку'
@@ -179,12 +233,13 @@ def handle_dialog(req, res):
                                   excursion_description=sessionStorage[user_id]['add_excursion']['excursion_description'],
                                   excursion_duration=':'.join(sessionStorage[user_id]['add_excursion']['excursion_duration']),
                                   place_description=sessionStorage[user_id]['add_excursion']['place_description'], currency=sessionStorage[user_id]['add_excursion']['currency'],
-                                  sile=sessionStorage[user_id]['add_excursion']['sile'])
+                                  sile=sessionStorage[user_id]['add_excursion']['sile'], city=sessionStorage[user_id]['add_excursion']['city'])
             excursion.set_password(sessionStorage[user_id]['add_excursion']['password'])
             db.session.add(excursion)
             db.session.commit()
             stage = 1
             res['response']['text'] += str(Excursion.query.filter_by(id=1).first())
+            now_command = False
             return
 
 
@@ -333,6 +388,18 @@ def get_date(req):
     return False
 
 
+def get_city(req):
+    city = False
+    for entity in req['request']['nlu']['entities']:
+        if entity['type'] == 'YANDEX.GEO':
+            if 'city' in entity['value']:
+                city = entity['value']['city']
+                break
+            else:
+                return False
+    return city
+
+
 def get_address(req):
     for entity in req['request']['nlu']['entities']:
         if entity['type'] == 'YANDEX.GEO':
@@ -349,7 +416,7 @@ def get_address(req):
                 return False
             if 'house_number' in entity['value']:
                 address += entity['value']['house_number'] + ', '
-            return address[:-2]
+            return [address[:-2], entity['value']['city']]
     return False
 
 
