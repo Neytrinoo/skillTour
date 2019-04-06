@@ -17,6 +17,7 @@ class Excursion(db.Model):
     telephone_number = db.Column(db.String(30))
     number = db.Column(db.Integer)
     city = db.Column(db.String(100))
+    pt = db.Column(db.String(100))
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

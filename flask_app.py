@@ -66,6 +66,26 @@ def get_map(longitude, lattitude, w, h):
     return image['image']['id']
 
 
+def get_pt_from_address(address):
+    long, lat, w, h = search_city(address)
+    return str(long) + ',' + str(lat) + ',pm2dgl'
+
+
+def get_map_with_all_excursion():
+    map_params = {
+        "l": 'sat,skl',
+        'pt': ''
+    }
+    for excursion in Excursion.query.all():
+        map_params['pt'] += excursion.pt + '~'
+    map_params['pt'] = map_params['pt'][:-1]
+    response = requests.get(map_api_server, params=map_params)
+    url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
+    files = {'file': response.content}
+    image = post(url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
+    return image['image']['id']
+
+
 def handle_dialog(req, res):
     global now_command, stage, stage_sile
     user_id = req['session']['user_id']
@@ -92,6 +112,14 @@ def handle_dialog(req, res):
         if stage == 1:
             res['response']['text'] = 'Укажите точный адрес начала экскурсии'
             return
+    if 'показать' in req['request']['nlu']['tokens'] and 'все' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
+        res['response']['text'] = 's'
+        res['response']['card'] = {}
+        res['response']['card']['type'] = 'BigImage'
+        res['response']['card']['title'] = 'Да'
+        res['response']['card']['image_id'] = get_map_with_all_excursion()
+        res['response']['text'] = 'Yes'
+        return
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
         city = get_city(req)
         now_command = 'show excursion in city'
@@ -101,7 +129,6 @@ def handle_dialog(req, res):
         sessionStorage[user_id]['long_lat'] = search_city(city)
         res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту с экскурсиями'
         return
-
     if now_command == 'show excursion in city':
         if 'показать' in req['request']['nlu']['tokens']:
             res['response']['text'] = 's'
@@ -111,7 +138,6 @@ def handle_dialog(req, res):
             res['response']['card']['image_id'] = get_map(sessionStorage[user_id]['long_lat'][0], sessionStorage[user_id]['long_lat'][1],
                                                           sessionStorage[user_id]['long_lat'][2], sessionStorage[user_id]['long_lat'][3])
             res['response']['text'] = 'Yes'
-            del sessionStorage[user_id]['long_lat']
             now_command = False
         else:
             res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
@@ -125,6 +151,7 @@ def handle_dialog(req, res):
                 res['response']['text'] = 'Ваш адрес распознан. Это ' + address[0] + '. Теперь введите точную дату проведения экскурсии'
                 sessionStorage[user_id]['add_excursion']['address'] = address[0]
                 sessionStorage[user_id]['add_excursion']['city'] = address[1]
+                sessionStorage[user_id]['add_excursion']['pt'] = get_pt_from_address(address[0])
                 stage += 1
             else:
                 res['response']['text'] = 'Введенный адрес некорректен или недостаточно точен. Повторите попытку'
@@ -227,13 +254,14 @@ def handle_dialog(req, res):
         elif stage == 10:
             telephone_number = req['request']['original_utterance']
             sessionStorage[user_id]['add_excursion']['telephon_number'] = telephone_number
-            res['response']['text'] = 'Отлично! Экскурсия успешно добавлена! Теперь другие пользователи смогут без труда ее найти\n' + str(sessionStorage[user_id]['add_excursion'])
+            res['response']['text'] = 'Отлично! Экскурсия успешно добавлена! Теперь другие пользователи смогут без труда ее найти\n'
             excursion = Excursion(address=sessionStorage[user_id]['add_excursion']['address'], date=sessionStorage[user_id]['add_excursion']['date'],
                                   name=sessionStorage[user_id]['add_excursion']['name'], excursion_name=sessionStorage[user_id]['add_excursion']['excursion_name'],
                                   excursion_description=sessionStorage[user_id]['add_excursion']['excursion_description'],
                                   excursion_duration=':'.join(sessionStorage[user_id]['add_excursion']['excursion_duration']),
                                   place_description=sessionStorage[user_id]['add_excursion']['place_description'], currency=sessionStorage[user_id]['add_excursion']['currency'],
-                                  sile=sessionStorage[user_id]['add_excursion']['sile'], city=sessionStorage[user_id]['add_excursion']['city'])
+                                  sile=sessionStorage[user_id]['add_excursion']['sile'], city=sessionStorage[user_id]['add_excursion']['city'],
+                                  pt=sessionStorage[user_id]['add_excursion']['pt'])
             excursion.set_password(sessionStorage[user_id]['add_excursion']['password'])
             db.session.add(excursion)
             db.session.commit()
