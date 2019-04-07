@@ -1,15 +1,14 @@
 from flask import Flask, request
 import logging
 import json
-import calendar
 from datetime import datetime, timedelta, timezone
-from string import ascii_letters
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from config import Config
 import requests
-from requests import post
+from requests import post, delete
 from get_params import get_params
+from checks import *
 
 app = Flask(__name__)
 db = SQLAlchemy(app)
@@ -18,8 +17,9 @@ app.config.from_object(Config)
 logging.basicConfig(level=logging.INFO)
 sessionStorage = {}
 map_api_server = "http://static-maps.yandex.ru/1.x/"
-
+skill_image_url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
 now_command = False
+image_to_delete = []
 stage = 1
 stage_sile = 1
 
@@ -52,23 +52,42 @@ def search_city(city):
     return [longitude, lattitude, w, h]
 
 
+def get_pt_excursion_in_city(city):
+    excursions = Excursion.query.filter_by(city=city).all()
+    excursions = list(sorted(excursions, key=lambda x: x.date))
+    if not excursions:
+        return False
+    for i in range(len(excursions)):
+        if (datetime.utcnow() - excursions[i].date).days > 1:
+            Excursion.query.filter_by(id=excursions[i].id).delete()
+        else:
+            break
+    db.session.commit()
+    excursions = Excursion.query.filter_by(city=city).all()
+    excursions = list(sorted(excursions, key=lambda x: x.date))
+    pt = ''
+    for i in range(len(excursions)):
+        excursions[i].number = i + 1
+        pt += excursions[i].pt + 'pm2blm' + str(i + 1) + '~'
+    db.session.commit()
+    return pt[:-1]
+
+
 # Получаем карту и добавляем эту картинку в Алису
-def get_map(longitude, lattitude, w, h):
+def get_map(pt):
     map_params = {
-        "ll": ",".join([str(longitude), str(lattitude)]),
-        'spn': ",".join([str(w), str(h)]),
-        "l": 'sat,skl'
+        "l": 'sat,skl',
+        'pt': pt
     }
     response = requests.get(map_api_server, params=map_params)
-    url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
     files = {'file': response.content}
-    image = post(url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
+    image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
     return image['image']['id']
 
 
 def get_pt_from_address(address):
     long, lat, w, h = search_city(address)
-    return str(long) + ',' + str(lat) + ',pm2dgl'
+    return str(long) + ',' + str(lat) + ','
 
 
 def get_map_with_all_excursion():
@@ -77,22 +96,26 @@ def get_map_with_all_excursion():
         'pt': ''
     }
     for excursion in Excursion.query.all():
-        map_params['pt'] += excursion.pt + '~'
+        map_params['pt'] += excursion.pt + 'pm2dgl' + '~'
     map_params['pt'] = map_params['pt'][:-1]
     response = requests.get(map_api_server, params=map_params)
-    url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
     files = {'file': response.content}
-    image = post(url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
+    image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
     return image['image']['id']
 
 
+def delete_image(image_id):
+    delete(skill_image_url + '/' + image_id, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
+
+
 def handle_dialog(req, res):
-    global now_command, stage, stage_sile
+    global now_command, stage, stage_sile, image_to_delete
     user_id = req['session']['user_id']
 
     if req['session']['new']:
         sessionStorage[user_id] = {
             'suggests': [
+                "Помощь",
                 "Показать все экскурсии",
                 "Показать ближайшие экскурсии",
                 "Добавить экскурсию",
@@ -107,37 +130,75 @@ def handle_dialog(req, res):
                       '"Удалить экскурсию <номер экскурсии>",\n"Редактировать экскурсию <город экскурсии> <номер экскурсии в этом городе>",\n"Добавить экскурсию"'
         res['response']['buttons'] = get_suggests(user_id)
         return
+    if image_to_delete:
+        for image_id in image_to_delete:
+            delete_image(image_id)
+        image_to_delete = []
+    if 'помощь' == req['request']['original_utterance'].lower():
+        res['response'][
+            'text'] = 'Привет! Сейчас ты можешь найти себе экскурсию в любом месте, или сам добавить экскурсию! У каждой экскурсии есть уникальный номер. ' \
+                      'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
+                      'добавлении. Вот что я могу:\n"Показать все экскурсии", \n' \
+                      '"Показать ближайшие экскурсии",\n"Показать экскурсии в <город>",\n"Получить экскурсию <номер экскурсии>",\n' \
+                      '"Удалить экскурсию <номер экскурсии>",\n"Редактировать экскурсию <город экскурсии> <номер экскурсии в этом городе>",\n"Добавить экскурсию"'
+        return
     if 'добавить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and not now_command:
         now_command = 'add excursion'
         if stage == 1:
             res['response']['text'] = 'Укажите точный адрес начала экскурсии'
             return
+    if 'показать' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
+        if 'now_city' in sessionStorage[user_id]:
+            number = check_sile(req)
+            if not number:
+                res['response']['text'] = 'Номер экскурсии не распознан'
+                return
+            now_excursion = Excursion.query.filter_by(city=sessionStorage[user_id]['now_city'], number=number).first()
+            if not now_excursion:
+                res['response']['text'] = 'Экскурсии с таким номером нет в данном городе'
+                return
+            res['response']['text'] = str(now_excursion)
+            return
+        else:
+            res['response']['text'] = 'Для того, чтобы получить экскурсию по номеру, нужно сначало определить, в каком городе мы будем искать экскурсии. Для этого сначала ' \
+                                      'напишите: "показать экскурсии в <название_города>"'
+            return
     if 'показать' in req['request']['nlu']['tokens'] and 'все' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
+        all_excursion_image_id = get_map_with_all_excursion()
         res['response']['text'] = 's'
         res['response']['card'] = {}
         res['response']['card']['type'] = 'BigImage'
         res['response']['card']['title'] = 'Да'
-        res['response']['card']['image_id'] = get_map_with_all_excursion()
+        res['response']['card']['image_id'] = all_excursion_image_id
         res['response']['text'] = 'Yes'
+        image_to_delete.append(all_excursion_image_id)
         return
+
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
         city = get_city(req)
         now_command = 'show excursion in city'
         if not city:
             res['response']['text'] = 'Город не распознан. Пожалуйста, повторите ввод'
             return
-        sessionStorage[user_id]['long_lat'] = search_city(city)
-        res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту с экскурсиями'
+        pt = get_pt_excursion_in_city(city)
+        if pt:
+            sessionStorage[user_id]['pt_for_excursions'] = get_pt_excursion_in_city(city)
+            res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту с экскурсиями'
+            sessionStorage[user_id]['now_city'] = city
+        else:
+            res['response']['text'] = 'В данном городе пока что нет экскурсий. Но вы можете это исправить, написав "Добавить экскурсию"'
+            now_command = False
         return
     if now_command == 'show excursion in city':
         if 'показать' in req['request']['nlu']['tokens']:
+            image_id = get_map(sessionStorage[user_id]['pt_for_excursions'])
             res['response']['text'] = 's'
             res['response']['card'] = {}
             res['response']['card']['type'] = 'BigImage'
-            res['response']['card']['title'] = 'Да'
-            res['response']['card']['image_id'] = get_map(sessionStorage[user_id]['long_lat'][0], sessionStorage[user_id]['long_lat'][1],
-                                                          sessionStorage[user_id]['long_lat'][2], sessionStorage[user_id]['long_lat'][3])
+            res['response']['card']['title'] = 'Чтобы получить информацию об конктерной экскурсии, напишите "показать экскурсию номер <номер экскурсии>"'
+            res['response']['card']['image_id'] = image_id
             res['response']['text'] = 'Yes'
+            image_to_delete.append(image_id)
             now_command = False
         else:
             res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
@@ -261,7 +322,7 @@ def handle_dialog(req, res):
                                   excursion_duration=':'.join(sessionStorage[user_id]['add_excursion']['excursion_duration']),
                                   place_description=sessionStorage[user_id]['add_excursion']['place_description'], currency=sessionStorage[user_id]['add_excursion']['currency'],
                                   sile=sessionStorage[user_id]['add_excursion']['sile'], city=sessionStorage[user_id]['add_excursion']['city'],
-                                  pt=sessionStorage[user_id]['add_excursion']['pt'])
+                                  pt=sessionStorage[user_id]['add_excursion']['pt'], telephone_number=telephone_number)
             excursion.set_password(sessionStorage[user_id]['add_excursion']['password'])
             db.session.add(excursion)
             db.session.commit()
@@ -269,183 +330,6 @@ def handle_dialog(req, res):
             res['response']['text'] += str(Excursion.query.filter_by(id=1).first())
             now_command = False
             return
-
-
-def check_sile(req):
-    sile = False
-    for entity in req['request']['nlu']['entities']:
-        if entity['type'] == 'YANDEX.NUMBER':
-            sile = entity['value']
-            if len(str(sile)) > 8:
-                return False
-            return sile
-    return sile
-
-
-def check_currency(req):
-    currency = False
-    if 'рубль' in req['request']['nlu']['tokens']:
-        currency = 'рубль'
-    elif 'доллар' in req['request']['nlu']['tokens'] or 'долар' in req['request']['nlu']['tokens']:
-        currency = 'доллар'
-    elif 'евро' in req['request']['nlu']['tokens']:
-        currency = 'евро'
-    return currency
-
-
-def check_place_description(req):
-    place_description = req['request']['original_utterance']
-    if len(place_description) > 500:
-        return ['Превышено допустимое количество символов: 500. Пожалуйста, повторите ввод', False]
-    return [place_description, True]
-
-
-def check_excursion_duration(req):
-    for entity in req['request']['nlu']['entities']:
-        if entity['type'] == 'YANDEX.DATETIME':
-            hour = 0
-            minute = 0
-            if 'hour' in entity['value']:
-                hour = entity['value']['hour']
-            if 'minute' in entity['value']:
-                minute = entity['value']['minute']
-            return [hour, minute]
-    return False
-
-
-def check_excursion_description(req):
-    excursion_description = req['request']['original_utterance']
-    if len(excursion_description) > 1500:
-        return ['Превышено допустимое количество символов: 1500. Пожалуйста, повторите ввод', False]
-    return [excursion_description, True]
-
-
-# Проверка введенного названия экскурсии на длину
-def check_excursion_name(req):
-    excursion_name = req['request']['original_utterance']
-    if len(excursion_name) > 200:
-        return ['Превышена допустимое количество символов: 200. Пожалуйста, повторите ввод', False]
-    return [excursion_name, True]
-
-
-# Проверка введенного имени экскурсовода
-def check_name(req):
-    for entity in req['request']['nlu']['entities']:
-        if entity['type'] == 'YANDEX.FIO':
-            name = ''
-            if 'first_name' in entity['value']:
-                name += entity['value']['first_name'][0].upper() + entity['value']['first_name'][1:] + ' '
-            else:
-                return ['Имя не распознано. Повторите ввод', False]
-            if 'last_name' in entity['value']:
-                name += entity['value']['last_name'][0].upper() + entity['value']['last_name'][1:] + ' '
-            else:
-                return ['Фамилия не распознана. Повторите ввод', False]
-            if 'patronymic_name' in entity['value']:
-                name += entity['value']['patronymic_name'][0].upper() + entity['value']['patronymic_name'][1:] + ' '
-            return [name, True]
-    return ['Введенные данные не распознаны. Повторите ввод', False]
-
-
-# Проверка правильности ввода пароля
-def check_password(req):
-    valid_characters = list(ascii_letters) + [' ', '_', '-', '.', ',', ':', ';', '@', '\'', '"']
-    password = req['request']['original_utterance']
-    try:
-        if len(password) < 8:
-            return ['Пароль слишком короткий. Повторите ввод', False]
-        for symbol in password:
-            if symbol not in valid_characters and not symbol.isdigit():
-                return ['В пароле присутствуют недопустимые символы. Повторите ввод', False]
-        return [password, True]
-    except Exception as e:
-        return ['Введенный пароль некорректен. Повторите ввод', False]
-
-
-def get_date(req):
-    for entity in req['request']['nlu']['entities']:
-        if entity['type'] == 'YANDEX.DATETIME':
-            now_date = datetime.now(timezone.utc).astimezone()
-            # Если год задан относительно, то добавляем к текущей дате 365 дней. Больше нельзя, т.к. ограничение на дату - год вперед
-            if 'year_is_relative' in entity['value']:
-                if entity['value']['year_is_relative']:
-                    if entity['value']['year'] <= 1:
-                        if now_date.year % 4 != 0:
-                            now_date += timedelta(days=365)
-                        else:
-                            now_date += timedelta(days=364)
-                else:
-                    now_date = now_date.replace(year=entity['value']['year'])
-
-            if 'month_is_relative' in entity['value']:
-                if entity['value']['month_is_relative']:
-                    if entity['value']['month'] <= 12:  # Ограничение на дату - не больше года вперед
-                        for i in range(entity['value']['month']):
-                            days_in_month = calendar.monthrange(now_date.year, now_date.month)[1]
-                            now_date += timedelta(days=days_in_month)
-                    else:
-                        return False
-                else:
-                    now_date = now_date.replace(month=entity['value']['month'])
-
-            if 'day_is_relative' in entity['value']:
-                if entity['value']['day_is_relative']:
-                    if entity['value']['day'] <= 365:  # Ограничение на дату - не больше года вперед
-                        now_date += timedelta(days=entity['value']['day'])
-                    else:
-                        return False
-                else:
-                    now_date = now_date.replace(day=entity['value']['day'])
-            if 'hour_is_relative' in entity['value']:
-                if entity['value']['hour_is_relative']:
-                    if entity['value']['hour'] <= 8760:
-                        now_date += timedelta(hours=entity['value']['hour'])
-                    else:
-                        return False
-                else:
-                    now_date = now_date.replace(hour=entity['value']['hour'])
-            if 'minute_is_relative' in entity['value']:
-                if entity['value']['minute_is_relative']:
-                    if entity['value']['minute'] <= 525600:
-                        now_date += timedelta(minutes=entity['value']['minute'])
-                    else:
-                        return False
-                else:
-                    now_date = now_date.replace(minute=entity['value']['minute'])
-            return now_date
-    return False
-
-
-def get_city(req):
-    city = False
-    for entity in req['request']['nlu']['entities']:
-        if entity['type'] == 'YANDEX.GEO':
-            if 'city' in entity['value']:
-                city = entity['value']['city']
-                break
-            else:
-                return False
-    return city
-
-
-def get_address(req):
-    for entity in req['request']['nlu']['entities']:
-        if entity['type'] == 'YANDEX.GEO':
-            address = ''
-            if 'country' in entity['value']:
-                address += entity['value']['country'] + ', '
-            if 'city' in entity['value']:
-                address += entity['value']['city'] + ', '
-            else:
-                return False
-            if 'street' in entity['value']:
-                address += entity['value']['street'] + ', '
-            else:
-                return False
-            if 'house_number' in entity['value']:
-                address += entity['value']['house_number'] + ', '
-            return [address[:-2], entity['value']['city']]
-    return False
 
 
 # Функция возвращает две подсказки для ответа.
