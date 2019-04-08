@@ -9,8 +9,8 @@ url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e
 print(get(url, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).content)
 all_image = get(url, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()['images']
 # print(delete(url+'/965417/deee16451592b909a362', headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json())
-for image in all_image:
-    print(delete(url + '/' + image['id'], headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json())
+# for image in all_image:
+#     print(delete(url + '/' + image['id'], headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json())
 # class MyThread(Thread):
 #     def __init__(self, event):
 #         Thread.__init__(self)

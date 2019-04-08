@@ -1,7 +1,6 @@
 from flask import Flask, request
 import logging
 import json
-from datetime import datetime, timedelta, timezone
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from config import Config
@@ -22,6 +21,12 @@ now_command = False
 image_to_delete = []
 stage = 1
 stage_sile = 1
+help_message = 'Привет! Сейчас ты можешь найти себе экскурсию в любом месте, или сам добавить экскурсию! У каждой экскурсии есть уникальный номер. ' \
+               'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
+               'добавлении. Вот что я могу:\n"Показать все экскурсии",\n"Добавить экскурсию"\n' \
+               '"Показать экскурсии в <город>",\nПосле показа экскурсий в каком-то городе, вы можете выполнить следующие команды: ' \
+               '"Получить экскурсию номер <номер экскурсии>",\n "Удалить экскурсию номер <номер экскурсии>",\n' \
+               '"Редактировать экскурсию номер <номер экскурсии в этом городе>",\n'
 
 
 @app.route('/post', methods=['POST'])
@@ -121,32 +126,56 @@ def handle_dialog(req, res):
                 "Добавить экскурсию",
             ]
         }
-        # Заполняем текст ответа
-        res['response'][
-            'text'] = 'Привет! Сейчас ты можешь найти себе экскурсию в любом месте, или сам добавить экскурсию! У каждой экскурсии есть уникальный номер. ' \
-                      'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
-                      'добавлении. Вот что я могу:\n"Показать все экскурсии", \n' \
-                      '"Показать ближайшие экскурсии",\n"Показать экскурсии в <город>",\n"Получить экскурсию <номер экскурсии>",\n' \
-                      '"Удалить экскурсию <номер экскурсии>",\n"Редактировать экскурсию <город экскурсии> <номер экскурсии в этом городе>",\n"Добавить экскурсию"'
+        res['response']['text'] = help_message
         res['response']['buttons'] = get_suggests(user_id)
         return
+    else:
+        sessionStorage[user_id]['suggests'] = ["Помощь"]
+        res['response']['buttons'] = get_suggests(user_id)
     if image_to_delete:
         for image_id in image_to_delete:
             delete_image(image_id)
         image_to_delete = []
     if 'помощь' == req['request']['original_utterance'].lower():
-        res['response'][
-            'text'] = 'Привет! Сейчас ты можешь найти себе экскурсию в любом месте, или сам добавить экскурсию! У каждой экскурсии есть уникальный номер. ' \
-                      'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
-                      'добавлении. Вот что я могу:\n"Показать все экскурсии", \n' \
-                      '"Показать ближайшие экскурсии",\n"Показать экскурсии в <город>",\n"Получить экскурсию <номер экскурсии>",\n' \
-                      '"Удалить экскурсию <номер экскурсии>",\n"Редактировать экскурсию <город экскурсии> <номер экскурсии в этом городе>",\n"Добавить экскурсию"'
+        res['response']['text'] = help_message
         return
+    if 'редактировать' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
+        if 'now_city' in sessionStorage[user_id]:
+            number = check_sile(req)
+            if not number:
+                res['response']['text'] = 'Номер экскурсии не распознан'
+                return
+            excursion_to_edit = Excursion.query.filter_by(city=sessionStorage[user_id]['now_city'], number=number).first()
+            if not excursion_to_edit:
+                res['response']['text'] = 'Экскурсии с таким номером в данном городе не существует'
+                return
+            res['response']['text'] = 'Чтобы редактировать данную экскурсию, вам нужно подтвердить, что вы ее создатель.' \
+                                      ' Для этого введите пароль, который вы указывали при добавлении. Чтобы выйти из редактирования, напишите "!выйти"'
+            sessionStorage[user_id]['edit_excursion'] = excursion_to_edit
+            now_command = 'edit excursion'
+            return
+        else:
+            res['response']['text'] = 'Чтобы редактировать экскурсию по номеру, для начала выберите город, в котором находится эта экскурсия. ' \
+                                      'Например, "показать экскурсии в Москве"'
+            return
     if 'добавить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and not now_command:
         now_command = 'add excursion'
         if stage == 1:
             res['response']['text'] = 'Укажите точный адрес начала экскурсии'
             return
+    if now_command == 'edit excursion':
+        excursion_to_edit = sessionStorage[user_id]['edit_excursion']
+        password = req['request']['original_utterance']
+        if password == '!выйти':
+            res['response']['text'] = 'Вы успешно вышли из режима редактирования'
+            now_command = False
+            return
+        if not excursion_to_edit.check_password(password):
+            res['response']['text'] = 'Пароль не распознан. Пожалуйста, повторите ввод'
+            return
+        if stage == 2:
+            pass
+        stage += 1
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
         if 'now_city' in sessionStorage[user_id]:
             number = check_sile(req)
@@ -176,13 +205,13 @@ def handle_dialog(req, res):
 
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
         city = get_city(req)
-        now_command = 'show excursion in city'
         if not city:
             res['response']['text'] = 'Город не распознан. Пожалуйста, повторите ввод'
             return
+        now_command = 'show excursion in city'
         pt = get_pt_excursion_in_city(city)
         if pt:
-            sessionStorage[user_id]['pt_for_excursions'] = get_pt_excursion_in_city(city)
+            sessionStorage[user_id]['pt_for_excursions'] = pt
             res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту с экскурсиями'
             sessionStorage[user_id]['now_city'] = city
         else:
@@ -195,7 +224,7 @@ def handle_dialog(req, res):
             res['response']['text'] = 's'
             res['response']['card'] = {}
             res['response']['card']['type'] = 'BigImage'
-            res['response']['card']['title'] = 'Чтобы получить информацию об конктерной экскурсии, напишите "показать экскурсию номер <номер экскурсии>"'
+            res['response']['card']['title'] = 'Теперь вы можете получить информацию об экскурсии, удалить ее или отредактировать с помощью ее номера, который указан на метках'
             res['response']['card']['image_id'] = image_id
             res['response']['text'] = 'Yes'
             image_to_delete.append(image_id)
@@ -219,7 +248,7 @@ def handle_dialog(req, res):
             return
         elif stage == 2:
             date = get_date(req)
-            if date > datetime.now(timezone.utc).astimezone():
+            if (datetime.utcnow() - date).days < 1:
                 res['response']['text'] = 'Вот дата ' + date.strftime('%d.%m.%Y, %H:%M') + '\nТеперь введите пароль для удаления и редактирования экскурсии. Он нужен, ' \
                                                                                            'чтобы никто, кроме Вас, не смог управлять вашей экскурсией.\n' \
                                                                                            'Пароль должен быть длиной не менее 8 символов. Может содержать латинские' \
@@ -229,6 +258,7 @@ def handle_dialog(req, res):
                 stage += 1
             else:
                 res['response']['text'] = 'Введенная дата некорректна. Введите дату еще раз'
+            return
         elif stage == 3:
             password_status = check_password(req)
             if password_status[1]:
@@ -275,7 +305,7 @@ def handle_dialog(req, res):
             time = check_excursion_duration(req)
             if time:
                 res['response']['text'] = 'Продолжительность успешно добавлена. Теперь опишите по-подробнее точное место встречи. Укажите какие-нибудь опознавательные признаки.' \
-                                          ' Например, "Большой дуб рядом с трамвайной остоновкой"'
+                                          ' Например, "Большой дуб рядом с трамвайной остановкой"'
                 sessionStorage[user_id]['add_excursion']['excursion_duration'] = [str(time[0]), str(time[1])]
                 stage += 1
             else:
@@ -314,7 +344,7 @@ def handle_dialog(req, res):
                 return
         elif stage == 10:
             telephone_number = req['request']['original_utterance']
-            sessionStorage[user_id]['add_excursion']['telephon_number'] = telephone_number
+            sessionStorage[user_id]['add_excursion']['telephone_number'] = telephone_number
             res['response']['text'] = 'Отлично! Экскурсия успешно добавлена! Теперь другие пользователи смогут без труда ее найти\n'
             excursion = Excursion(address=sessionStorage[user_id]['add_excursion']['address'], date=sessionStorage[user_id]['add_excursion']['date'],
                                   name=sessionStorage[user_id]['add_excursion']['name'], excursion_name=sessionStorage[user_id]['add_excursion']['excursion_name'],
@@ -338,7 +368,7 @@ def get_suggests(user_id):
 
     suggests = [
         {'title': suggest, 'hide': True}
-        for suggest in session['suggests'][:2]
+        for suggest in session['suggests']
     ]
 
     sessionStorage[user_id] = session
