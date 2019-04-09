@@ -18,6 +18,7 @@ sessionStorage = {}
 map_api_server = "http://static-maps.yandex.ru/1.x/"
 skill_image_url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
 now_command = False
+edit_status = ''
 image_to_delete = []
 stage = 1
 stage_sile = 1
@@ -114,7 +115,7 @@ def delete_image(image_id):
 
 
 def handle_dialog(req, res):
-    global now_command, stage, stage_sile, image_to_delete
+    global now_command, stage, stage_sile, image_to_delete, edit_status
     user_id = req['session']['user_id']
 
     if req['session']['new']:
@@ -132,6 +133,7 @@ def handle_dialog(req, res):
     else:
         sessionStorage[user_id]['suggests'] = ["Помощь"]
         res['response']['buttons'] = get_suggests(user_id)
+    # Удаляем изображения из Алисы, когда они уже использованы
     if image_to_delete:
         for image_id in image_to_delete:
             delete_image(image_id)
@@ -139,6 +141,7 @@ def handle_dialog(req, res):
     if 'помощь' == req['request']['original_utterance'].lower():
         res['response']['text'] = help_message
         return
+    # Редактирование экскурсии
     if 'редактировать' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
         if 'now_city' in sessionStorage[user_id]:
             number = check_sile(req)
@@ -151,18 +154,20 @@ def handle_dialog(req, res):
                 return
             res['response']['text'] = 'Чтобы редактировать данную экскурсию, вам нужно подтвердить, что вы ее создатель.' \
                                       ' Для этого введите пароль, который вы указывали при добавлении. Чтобы выйти из редактирования, напишите "!выйти"'
-            sessionStorage[user_id]['edit_excursion'] = excursion_to_edit
+            sessionStorage[user_id]['edit_excursion'] = [sessionStorage[user_id]['now_city'], number]
             now_command = 'edit excursion'
             return
         else:
             res['response']['text'] = 'Чтобы редактировать экскурсию по номеру, для начала выберите город, в котором находится эта экскурсия. ' \
                                       'Например, "показать экскурсии в Москве"'
             return
+    # Комманда добавления экскурсии
     if 'добавить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and not now_command:
         now_command = 'add excursion'
         if stage == 1:
             res['response']['text'] = 'Укажите точный адрес начала экскурсии'
             return
+    # Процесс редактирования экскурсии
     if now_command == 'edit excursion':
         excursion_to_edit = sessionStorage[user_id]['edit_excursion']
         password = req['request']['original_utterance']
@@ -170,12 +175,78 @@ def handle_dialog(req, res):
             res['response']['text'] = 'Вы успешно вышли из режима редактирования'
             now_command = False
             return
-        if not excursion_to_edit.check_password(password):
+        if stage == 1 and not Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().check_password(password):
             res['response']['text'] = 'Пароль не распознан. Пожалуйста, повторите ввод'
             return
+        else:
+            stage += 1
         if stage == 2:
-            pass
-        stage += 1
+            res['response']['text'] = 'Теперь вам нужно выбрать, что редактировать. Вот возможные варианты:\n"Адрес",\n"Название",\n"Дата",\n"Описание места встречи",\n' \
+                                      '"Имя",\n"Описание",\n"Продолжительность",\n"Цена",\n"Телефон"'
+            return
+        if 'адрес' in req['request']['nlu']['tokens']:
+            res['response']['text'] = 'Введите адрес, на который вы ходите заменить данные'
+            edit_status = 'address'
+            return
+        if 'название' in req['request']['nlu']['tokens']:
+            res['response']['text'] = 'Введите название, на которое вы ходите заменить данные'
+            edit_status = 'name'
+            return
+        if 'дата' in req['request']['nlu']['tokens']:
+            res['response']['text'] = 'Введите дату, на которую вы ходите заменить данные'
+            edit_status = 'date'
+            return
+        if 'описание' in req['request']['nlu']['tokens'] and 'места' in req['request']['nlu']['tokens']:
+            res['response']['text'] = 'Введите описание, на которое вы ходите заменить данные'
+            edit_status = 'place_description'
+            return
+        if edit_status == 'place_description':
+            place_description = check_place_description(req)
+            if place_description[1]:
+                res['response']['text'] = 'Описание успешно Изменено. Теперь нужно указать стоимость экскурсии. Но для начала выберите валюту: "рубль", "евро", "доллар"'
+                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().place_description = place_description[0]
+                edit_status = ''
+                db.session.commit()
+            else:
+                res['response']['text'] = place_description[0]
+            return
+        if edit_status == 'date':
+            date = get_date(req)
+            if not date:
+                res['response']['text'] = 'Дата не распознана. Пожалуйста, повторите ввод'
+                return
+            if (datetime.utcnow() - date).days < 1:
+                res['response']['text'] = 'Дата успешно изменена: ' + date.strftime('%d.%m.%Y, %H:%M')
+                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().date = date
+                edit_status = ''
+                db.session.commit()
+            else:
+                res['response']['text'] = 'Введенная дата некорректна. Введите дату еще раз'
+            return
+        if edit_status == 'address':
+            address = get_address(req)
+            if address:
+                res['response']['text'] = 'Ваш адрес распознан. Это ' + address[0]
+                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().address = address[0]
+                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().city = address[1]
+                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().pt = get_pt_from_address(address[0])
+                edit_status = ''
+                db.session.commit()
+            else:
+                res['response']['text'] = 'Введенный адрес некорректен или недостаточно точен. Повторите попытку'
+            return
+        if edit_status == 'name':
+            excursion_name = check_excursion_name(req)
+            if excursion_name[1]:
+                res['response']['text'] = 'Название успешно изменено'
+                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().excursion_name = excursion_name[0]
+                edit_status = ''
+                db.session.commit()
+            else:
+                res['response']['text'] = excursion_name[0]
+            return
+        edit_status = ''
+    # Показ экскурсии
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
         if 'now_city' in sessionStorage[user_id]:
             number = check_sile(req)
@@ -192,6 +263,7 @@ def handle_dialog(req, res):
             res['response']['text'] = 'Для того, чтобы получить экскурсию по номеру, нужно сначало определить, в каком городе мы будем искать экскурсии. Для этого сначала ' \
                                       'напишите: "показать экскурсии в <название_города>"'
             return
+    # Комманда показа всех экскурсий
     if 'показать' in req['request']['nlu']['tokens'] and 'все' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
         all_excursion_image_id = get_map_with_all_excursion()
         res['response']['text'] = 's'
@@ -202,7 +274,7 @@ def handle_dialog(req, res):
         res['response']['text'] = 'Yes'
         image_to_delete.append(all_excursion_image_id)
         return
-
+    # Комманда показа экскурсий в конкретном городе
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not now_command:
         city = get_city(req)
         if not city:
@@ -218,6 +290,7 @@ def handle_dialog(req, res):
             res['response']['text'] = 'В данном городе пока что нет экскурсий. Но вы можете это исправить, написав "Добавить экскурсию"'
             now_command = False
         return
+    # Процесс показа экскурсии в конкретном городе
     if now_command == 'show excursion in city':
         if 'показать' in req['request']['nlu']['tokens']:
             image_id = get_map(sessionStorage[user_id]['pt_for_excursions'])
@@ -232,7 +305,7 @@ def handle_dialog(req, res):
         else:
             res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
         return
-
+    # Процесс добавления экскурсии
     if now_command == 'add excursion':
         if stage == 1:
             sessionStorage[user_id]['add_excursion'] = {}
@@ -248,6 +321,9 @@ def handle_dialog(req, res):
             return
         elif stage == 2:
             date = get_date(req)
+            if not date:
+                res['response']['text'] = 'Дата не распознана. Пожалуйста, повторите попытку'
+                return
             if (datetime.utcnow() - date).days < 1:
                 res['response']['text'] = 'Вот дата ' + date.strftime('%d.%m.%Y, %H:%M') + '\nТеперь введите пароль для удаления и редактирования экскурсии. Он нужен, ' \
                                                                                            'чтобы никто, кроме Вас, не смог управлять вашей экскурсией.\n' \
