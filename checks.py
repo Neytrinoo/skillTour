@@ -65,14 +65,14 @@ def check_name(req):
     for entity in req['request']['nlu']['entities']:
         if entity['type'] == 'YANDEX.FIO':
             name = ''
-            if 'first_name' in entity['value']:
-                name += entity['value']['first_name'][0].upper() + entity['value']['first_name'][1:] + ' '
-            else:
-                return ['Имя не распознано. Повторите ввод', False]
             if 'last_name' in entity['value']:
                 name += entity['value']['last_name'][0].upper() + entity['value']['last_name'][1:] + ' '
             else:
                 return ['Фамилия не распознана. Повторите ввод', False]
+            if 'first_name' in entity['value']:
+                name += entity['value']['first_name'][0].upper() + entity['value']['first_name'][1:] + ' '
+            else:
+                return ['Имя не распознано. Повторите ввод', False]
             if 'patronymic_name' in entity['value']:
                 name += entity['value']['patronymic_name'][0].upper() + entity['value']['patronymic_name'][1:] + ' '
             return [name, True]
