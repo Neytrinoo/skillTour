@@ -22,7 +22,7 @@ help_message = 'Привет! Сейчас ты можешь найти себе
                'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
                'добавлении. Вот что я могу:\n"Показать все экскурсии",\n"Добавить экскурсию"\n' \
                '"Показать экскурсии в <город>",\nПосле показа экскурсий в каком-то городе, вы можете выполнить следующие команды: ' \
-               '"Получить экскурсию номер <номер экскурсии>",\n "Удалить экскурсию номер <номер экскурсии>",\n' \
+               '"Показать экскурсию номер <номер экскурсии>",\n "Удалить экскурсию номер <номер экскурсии>",\n' \
                '"Редактировать экскурсию номер <номер экскурсии в этом городе>",\n'
 
 
@@ -82,6 +82,7 @@ def get_map(pt):
         'pt': pt
     }
     response = requests.get(map_api_server, params=map_params)
+    print(response.content)
     files = {'file': response.content}
     image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
     return image['image']['id']
@@ -100,10 +101,8 @@ def get_map_with_all_excursion():
     for excursion in Excursion.query.all():
         map_params['pt'] += excursion.pt + 'pm2dgl' + '~'
     if map_params['pt'] == '':
-        del map_params['pt']
-        map_params['ll'] = '55, 55'
-    else:
-        map_params['pt'] = map_params['pt'][:-1]
+        return False
+    map_params['pt'] = map_params['pt'][:-1]
     response = requests.get(map_api_server, params=map_params)
     files = {'file': response.content}
     image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
@@ -123,7 +122,6 @@ def handle_dialog(req, res):
             'suggests': [
                 "Помощь",
                 "Показать все экскурсии",
-                "Показать ближайшие экскурсии",
                 "Добавить экскурсию",
             ]
         }
@@ -163,21 +161,53 @@ def handle_dialog(req, res):
             res['response']['text'] = 'Чтобы редактировать экскурсию по номеру, для начала выберите город, в котором находится эта экскурсия. ' \
                                       'Например, "показать экскурсии в Москве"'
             return
+
+    if 'удалить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
+        if 'now_city' in sessionStorage[user_id]:
+            number = check_sile(req)
+            if not number:
+                res['response']['text'] = 'Номер экскурсии не распознан'
+                return
+            excursion_to_delete = Excursion.query.filter_by(city=sessionStorage[user_id]['now_city'], number=number).first()
+            if not excursion_to_delete:
+                res['response']['text'] = 'Экскурсии с таким номером в данном городе не существует'
+                return
+            res['response']['text'] = 'Чтобы удалить данную экскурсию, вам нужно подтвердить, что вы ее создатель.' \
+                                      ' Для этого введите пароль, который вы указывали при добавлении. Чтобы выйти из удаления, напишите "!выйти"'
+            sessionStorage[user_id]['delete_excursion'] = [sessionStorage[user_id]['now_city'], number]
+            sessionStorage[user_id]['now_command'] = 'delete excursion'
+            return
     # Комманда добавления экскурсии
     if 'добавить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
         sessionStorage[user_id]['now_command'] = 'add excursion'
         sessionStorage[user_id]['stage'] = 1
         res['response']['text'] = 'Укажите точный адрес начала экскурсии. Для того, чтобы выйти из режима добавления, напишите "!выйти"'
         return
+    if sessionStorage[user_id]['now_command'] == 'delete excursion':
+        password = req['request']['original_utterance']
+        if password == '!выйти':
+            res['response']['text'] = 'Вы успешно вышли из режима удаления'
+            sessionStorage[user_id]['now_command'] = False
+            return
+        if not Excursion.query.filter_by(city=sessionStorage[user_id]['delete_excursion'][0], number=sessionStorage[user_id]['delete_excursion'][1]).first().check_password(
+                password):
+            res['response']['text'] = 'Пароль не распознан. Пожалуйста, повторите ввод'
+        else:
+            Excursion.query.filter_by(city=sessionStorage[user_id]['delete_excursion'][0], number=sessionStorage[user_id]['delete_excursion'][1]).delete()
+            db.session.commit()
+            res['response']['text'] = 'Экскурсия успешно удалена. Добавьте новую, если хотите'
+            sessionStorage[user_id]['now_command'] = False
+        return
+
     # Процесс редактирования экскурсии
     if sessionStorage[user_id]['now_command'] == 'edit excursion':
-        excursion_to_edit = sessionStorage[user_id]['edit_excursion']
         password = req['request']['original_utterance']
         if password == '!выйти':
             res['response']['text'] = 'Вы успешно вышли из режима редактирования'
             sessionStorage[user_id]['now_command'] = False
             return
-        if sessionStorage[user_id]['stage'] == 1 and not Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().check_password(password):
+        if sessionStorage[user_id]['stage'] == 1 and not Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0],
+                                                                                   number=sessionStorage[user_id]['edit_excursion'][1]).first().check_password(password):
             res['response']['text'] = 'Пароль не распознан. Пожалуйста, повторите ввод'
             return
         else:
@@ -225,7 +255,8 @@ def handle_dialog(req, res):
 
         if sessionStorage[user_id]['edit_status'] == 'phone':
             telephone_number = req['request']['original_utterance']
-            Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().telephone_number = telephone_number
+            Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0],
+                                      number=sessionStorage[user_id]['edit_excursion'][1]).first().telephone_number = telephone_number
             db.session.commit()
             res['response']['text'] = 'Номер телефона успешно изменен!'
             return
@@ -235,7 +266,7 @@ def handle_dialog(req, res):
                 if currency:
                     sessionStorage[user_id]['edit_excursion_currency'] = currency
                     res['response']['text'] = 'Валюта успешно задана. Теперь укажите стоимость экскурсии в данной валюте'
-                    Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().currency = currency
+                    Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().currency = currency
                     db.session.commit()
                 else:
                     res['response']['text'] = 'Введенная валюта некорректна. Пожалуйста, повторите попытку'
@@ -243,7 +274,7 @@ def handle_dialog(req, res):
             sile = check_sile(req)
             if sile:
                 res['response']['text'] = 'Отлично! Стоимость экскурсии изменена'
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().sile = sile
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().sile = sile
                 sessionStorage[user_id]['edit_status'] = ''
                 db.session.commit()
             else:
@@ -253,7 +284,8 @@ def handle_dialog(req, res):
             time = check_excursion_duration(req)
             if time:
                 res['response']['text'] = 'Продолжительность успешно изменена'
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().excursion_duration = [str(time[0]), str(time[1])]
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().excursion_duration = [
+                    str(time[0]), str(time[1])]
                 db.session.commit()
                 sessionStorage[user_id]['edit_status'] = ''
             else:
@@ -264,7 +296,8 @@ def handle_dialog(req, res):
             if not description[1]:
                 res['response']['text'] = description[0]
             else:
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().excursion_description = description[0]
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().excursion_description = \
+                    description[0]
                 db.session.commit()
                 res['response']['text'] = 'Описание экскурсии успешно изменено'
                 sessionStorage[user_id]['edit_status'] = ''
@@ -274,7 +307,7 @@ def handle_dialog(req, res):
             if not name[1]:
                 res['response']['text'] = name[0]
             else:
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().name = name[0]
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().name = name[0]
                 db.session.commit()
                 res['response']['text'] = 'Имя успешно изменено'
                 sessionStorage[user_id]['edit_status'] = ''
@@ -283,7 +316,8 @@ def handle_dialog(req, res):
             place_description = check_place_description(req)
             if place_description[1]:
                 res['response']['text'] = 'Описание успешно изменено'
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().place_description = place_description[0]
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().place_description = \
+                    place_description[0]
                 sessionStorage[user_id]['edit_status'] = ''
                 db.session.commit()
             else:
@@ -296,7 +330,7 @@ def handle_dialog(req, res):
                 return
             if (datetime.now(timezone.utc) - date).days < 1:
                 res['response']['text'] = 'Дата успешно изменена: ' + date.strftime('%d.%m.%Y, %H:%M')
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().date = date
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().date = date
                 sessionStorage[user_id]['edit_status'] = ''
                 db.session.commit()
             else:
@@ -306,9 +340,10 @@ def handle_dialog(req, res):
             address = get_address(req)
             if address:
                 res['response']['text'] = 'Ваш адрес распознан. Это ' + address[0]
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().address = address[0]
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().city = address[1]
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().pt = get_pt_from_address(address[0])
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().address = address[0]
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().city = address[1]
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().pt = get_pt_from_address(
+                    address[0])
                 sessionStorage[user_id]['edit_status'] = ''
                 db.session.commit()
             else:
@@ -318,7 +353,8 @@ def handle_dialog(req, res):
             excursion_name = check_excursion_name(req)
             if excursion_name[1]:
                 res['response']['text'] = 'Название успешно изменено'
-                Excursion.query.filter_by(city=excursion_to_edit[0], number=excursion_to_edit[1]).first().excursion_name = excursion_name[0]
+                Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0], number=sessionStorage[user_id]['edit_excursion'][1]).first().excursion_name = \
+                    excursion_name[0]
                 sessionStorage[user_id]['edit_status'] = ''
                 db.session.commit()
             else:
@@ -348,13 +384,17 @@ def handle_dialog(req, res):
     if 'показать' in req['request']['nlu']['tokens'] and 'все' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not \
             sessionStorage[user_id]['now_command']:
         all_excursion_image_id = get_map_with_all_excursion()
-        res['response']['text'] = 's'
-        res['response']['card'] = {}
-        res['response']['card']['type'] = 'BigImage'
-        res['response']['card']['title'] = 'Да'
-        res['response']['card']['image_id'] = all_excursion_image_id
-        res['response']['text'] = 'Yes'
-        image_to_delete.append(all_excursion_image_id)
+        if all_excursion_image_id:
+            res['response']['text'] = 's'
+            res['response']['card'] = {}
+            res['response']['card']['type'] = 'BigImage'
+            res['response']['card']['title'] = 'Да'
+            res['response']['card']['image_id'] = all_excursion_image_id
+            res['response']['text'] = 'Yes'
+            image_to_delete.append(all_excursion_image_id)
+        else:
+            res['response']['text'] = 'Пока что никто не добавил не одной экскурсии. Если у вас есть желание провести экскурсию, скорее добавьте ее, дав команду ' \
+                                      '"Добавить экскурсию"!'
         return
     # Комманда показа экскурсий в конкретном городе
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
