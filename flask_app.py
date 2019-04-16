@@ -23,7 +23,7 @@ help_message = 'Привет! Сейчас ты можешь найти себе
                'добавлении. Вот что я могу:\n"Показать все экскурсии",\n"Добавить экскурсию"\n' \
                '"Показать экскурсии в <город>",\nПосле показа экскурсий в каком-то городе, вы можете выполнить следующие команды: ' \
                '"Показать экскурсию номер <номер экскурсии>",\n "Удалить экскурсию номер <номер экскурсии>",\n' \
-               '"Редактировать экскурсию номер <номер экскурсии в этом городе>",\n'
+               '"Редактировать экскурсию номер <номер экскурсии в этом городе>",\n "Города, в которых есть экскурсии"'
 
 
 @app.route('/post', methods=['POST'])
@@ -130,7 +130,12 @@ def handle_dialog(req, res):
         res['response']['buttons'] = get_suggests(user_id)
         return
     else:
-        sessionStorage[user_id]['suggests'] = ["Помощь"]
+        if not sessionStorage[user_id]['now_command']:
+            sessionStorage[user_id]['suggests'] = ["Помощь",
+                                                   "Показать все экскурсии",
+                                                   "Добавить экскурсию"]
+        else:
+            sessionStorage[user_id]['suggests'] = ["Помощь"]
         res['response']['buttons'] = get_suggests(user_id)
     # Удаляем изображения из Алисы, когда они уже использованы
     if image_to_delete:
@@ -139,6 +144,18 @@ def handle_dialog(req, res):
         image_to_delete = []
     if 'помощь' == req['request']['original_utterance'].lower():
         res['response']['text'] = help_message
+        return
+    if 'города' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens']:
+        excursions = Excursion.query.all()
+        cities = []
+        for excurs in excursions:
+            cities.append(excurs.city)
+        cities = list(set(cities))
+        if cities:
+            res['response']['text'] = 'Вот города, в которых есть экскурсии:\n' + '\n'.join(cities)
+        else:
+            res['response']['text'] = 'Пока что никто не добавил не одной экскурсии. Если у вас есть желание провести экскурсию, скорее добавьте ее, дав команду ' \
+                                      '"Добавить экскурсию"!'
         return
     # Редактирование экскурсии
     if 'редактировать' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
@@ -560,9 +577,10 @@ def handle_dialog(req, res):
             db.session.add(excursion)
             db.session.commit()
             sessionStorage[user_id]['stage'] = 1
-            res['response']['text'] += str(Excursion.query.filter_by(id=1).first())
             sessionStorage[user_id]['now_command'] = False
             return
+    res['response']['text'] = 'Команда не распознана. Чтобы увидеть список команд, нажмите "Помощь"'
+    return
 
 
 # Функция возвращает две подсказки для ответа.

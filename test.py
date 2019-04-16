@@ -3,11 +3,14 @@ import asyncio
 from threading import Timer, Event, Thread
 import requests
 from get_params import get_params
+from datetime import datetime
 
 url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
+date = datetime.now()
+print(date.strftime('%d.%m.%Y %H:%M'))
 # files = {'file': open('user_default_avatar.png', 'rb')}
-print(get(url, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).content)
-all_image = get(url, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()['images']
+# print(get(url, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).content)
+# all_image = get(url, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()['images']
 # print(delete(url+'/965417/deee16451592b909a362', headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json())
 # for image in all_image:
 #     print(delete(url + '/' + image['id'], headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json())

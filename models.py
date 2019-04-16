@@ -28,8 +28,8 @@ class Excursion(db.Model):
     def __str__(self):
         duration = '0' * (2 - len(str(self.excursion_duration).split(':')[0])) + str(self.excursion_duration).split(':')[0] + ':' + \
                    '0' * (2 - len(str(self.excursion_duration).split(':')[1])) + str(self.excursion_duration).split(':')[1]
-        result = 'Название экскурсии: ' + self.excursion_name + '\n' + 'Адрес проведения: ' + self.address + '\n' + 'Дата проведения: ' + str(self.date) + '\n' + \
-                 'Конкретное описание места встречи: ' + self.place_description + '\n' + 'Экскурсовод: ' + self.name + '\n' + 'Описание экскурсии:' + '\n"' + \
+        result = 'Название экскурсии: ' + self.excursion_name + '\n' + 'Адрес проведения: ' + self.address + '\n' + 'Дата проведения: ' + str(self.date.strftime('%d.%m.%Y %H:%M')) \
+                 + '\n' + 'Конкретное описание места встречи: ' + self.place_description + '\n' + 'Экскурсовод: ' + self.name + '\n' + 'Описание экскурсии:' + '\n"' + \
                  self.excursion_description + '"\n' + 'Средняя продолжительность экскурсии: ' + duration + ' (hh:mm)\n'
         currency = ''
         if self.currency == 'рубль':
