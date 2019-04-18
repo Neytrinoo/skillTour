@@ -23,7 +23,7 @@ help_message = 'Привет! Сейчас ты можешь найти себе
                'добавлении. Вот что я могу:\n"Показать все экскурсии",\n"Добавить экскурсию"\n' \
                '"Показать экскурсии в <город>",\nПосле показа экскурсий в каком-то городе, вы можете выполнить следующие команды: ' \
                '"Показать экскурсию номер <номер экскурсии>",\n "Удалить экскурсию номер <номер экскурсии>",\n' \
-               '"Редактировать экскурсию номер <номер экскурсии в этом городе>",\n "Города, в которых есть экскурсии"'
+               '"Редактировать экскурсию номер <номер экскурсии в этом городе>",\n "Города, в которых есть экскурсии" или "В каких городах есть экскурсии?"'
 
 
 @app.route('/post', methods=['POST'])
@@ -76,7 +76,12 @@ def get_pt_excursion_in_city(city):
 
 
 # Получаем карту и добавляем эту картинку в Алису
-def get_map(pt):
+def get_map(files):
+    image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
+    return image['image']['id']
+
+
+def get_map_image_with_pt(pt):
     map_params = {
         "l": 'sat,skl',
         'pt': pt
@@ -84,8 +89,7 @@ def get_map(pt):
     response = requests.get(map_api_server, params=map_params)
     print(response.content)
     files = {'file': response.content}
-    image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
-    return image['image']['id']
+    return files
 
 
 def get_pt_from_address(address):
@@ -93,7 +97,12 @@ def get_pt_from_address(address):
     return str(long) + ',' + str(lat) + ','
 
 
-def get_map_with_all_excursion():
+def get_map_with_all_excursion(files):
+    image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
+    return image['image']['id']
+
+
+def get_map_image_with_all_excursion():
     map_params = {
         "l": 'sat,skl',
         'pt': ''
@@ -105,8 +114,7 @@ def get_map_with_all_excursion():
     map_params['pt'] = map_params['pt'][:-1]
     response = requests.get(map_api_server, params=map_params)
     files = {'file': response.content}
-    image = post(skill_image_url, files=files, headers={'Authorization': 'OAuth AQAAAAAgVOQPAAT7o0JsAefc8kEZhjW8sz0wMsY'}).json()
-    return image['image']['id']
+    return files
 
 
 def delete_image(image_id):
@@ -145,7 +153,7 @@ def handle_dialog(req, res):
     if 'помощь' == req['request']['original_utterance'].lower():
         res['response']['text'] = help_message
         return
-    if 'города' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens']:
+    if ('города' in req['request']['nlu']['tokens'] or 'городах' in req['request']['nlu']['tokens']) and 'экскурсии' in req['request']['nlu']['tokens']:
         excursions = Excursion.query.all()
         cities = []
         for excurs in excursions:
@@ -173,12 +181,14 @@ def handle_dialog(req, res):
             sessionStorage[user_id]['edit_excursion'] = [sessionStorage[user_id]['now_city'], number]
             sessionStorage[user_id]['now_command'] = 'edit excursion'
             sessionStorage[user_id]['stage'] = 1
+            sessionStorage[user_id]['suggests'] = ["Помощь"]
+            res['response']['buttons'] = get_suggests(user_id)
             return
         else:
             res['response']['text'] = 'Чтобы редактировать экскурсию по номеру, для начала выберите город, в котором находится эта экскурсия. ' \
                                       'Например, "показать экскурсии в Москве"'
             return
-
+    # Удаление экскурсии
     if 'удалить' in req['request']['nlu']['tokens'] and 'экскурсию' in req['request']['nlu']['tokens'] and 'номер' in req['request']['nlu']['tokens']:
         if 'now_city' in sessionStorage[user_id]:
             number = check_sile(req)
@@ -199,6 +209,8 @@ def handle_dialog(req, res):
         sessionStorage[user_id]['now_command'] = 'add excursion'
         sessionStorage[user_id]['stage'] = 1
         res['response']['text'] = 'Укажите точный адрес начала экскурсии. Для того, чтобы выйти из режима добавления, напишите "!выйти"'
+        sessionStorage[user_id]['suggests'] = ["Помощь"]
+        res['response']['buttons'] = get_suggests(user_id)
         return
     if sessionStorage[user_id]['now_command'] == 'delete excursion':
         password = req['request']['original_utterance']
@@ -222,6 +234,8 @@ def handle_dialog(req, res):
         if password == '!выйти':
             res['response']['text'] = 'Вы успешно вышли из режима редактирования'
             sessionStorage[user_id]['now_command'] = False
+            sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Добавить экскурсию"]
+            res['response']['buttons'] = get_suggests(user_id)
             return
         if sessionStorage[user_id]['stage'] == 1 and not Excursion.query.filter_by(city=sessionStorage[user_id]['edit_excursion'][0],
                                                                                    number=sessionStorage[user_id]['edit_excursion'][1]).first().check_password(password):
@@ -400,18 +414,30 @@ def handle_dialog(req, res):
     # Комманда показа всех экскурсий
     if 'показать' in req['request']['nlu']['tokens'] and 'все' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not \
             sessionStorage[user_id]['now_command']:
-        all_excursion_image_id = get_map_with_all_excursion()
-        if all_excursion_image_id:
-            res['response']['text'] = 's'
-            res['response']['card'] = {}
-            res['response']['card']['type'] = 'BigImage'
-            res['response']['card']['title'] = 'Да'
-            res['response']['card']['image_id'] = all_excursion_image_id
-            res['response']['text'] = 'Yes'
-            image_to_delete.append(all_excursion_image_id)
+        sessionStorage[user_id]['map_image_with_all_excursion'] = get_map_image_with_all_excursion()
+        if sessionStorage[user_id]['map_image_with_all_excursion']:
+            res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту со всеми экскурсиями'
+            sessionStorage[user_id]['now_command'] = 'get all excursion'
+            sessionStorage[user_id]['suggests'] = ["показать", "Помощь"]
+            res['response']['buttons'] = get_suggests(user_id)
         else:
             res['response']['text'] = 'Пока что никто не добавил не одной экскурсии. Если у вас есть желание провести экскурсию, скорее добавьте ее, дав команду ' \
                                       '"Добавить экскурсию"!'
+        return
+    if sessionStorage[user_id]['now_command'] == 'get all excursion':
+        if 'показать' in req['request']['nlu']['tokens']:
+            all_excursion_image_id = get_map_with_all_excursion(sessionStorage[user_id]['map_image_with_all_excursion'])
+            res['response']['text'] = 's'
+            res['response']['card'] = {}
+            res['response']['card']['type'] = 'BigImage'
+            res['response']['card']['title'] = 'Можете получить все экскурсии в конкретном городе, написав "Показать экскурсии в <навание_города>"'
+            res['response']['card']['image_id'] = all_excursion_image_id
+            res['response']['text'] = 'Yes'
+            image_to_delete.append(all_excursion_image_id)
+            sessionStorage[user_id]['now_command'] = False
+            sessionStorage[user_id]['map_image_with_all_excursion'] = 0
+        else:
+            res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
         return
     # Комманда показа экскурсий в конкретном городе
     if 'показать' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
@@ -422,8 +448,10 @@ def handle_dialog(req, res):
         sessionStorage[user_id]['now_command'] = 'show excursion in city'
         pt = get_pt_excursion_in_city(city)
         if pt:
-            sessionStorage[user_id]['pt_for_excursions'] = pt
+            sessionStorage[user_id]['map_image_with_pt'] = get_map_image_with_pt(pt)
             res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту с экскурсиями'
+            sessionStorage[user_id]['suggests'] = ["показать", "Помощь"]
+            res['response']['buttons'] = get_suggests(user_id)
             sessionStorage[user_id]['now_city'] = city
         else:
             res['response']['text'] = 'В данном городе пока что нет экскурсий. Но вы можете это исправить, написав "Добавить экскурсию"'
@@ -432,7 +460,7 @@ def handle_dialog(req, res):
     # Процесс показа экскурсии в конкретном городе
     if sessionStorage[user_id]['now_command'] == 'show excursion in city':
         if 'показать' in req['request']['nlu']['tokens']:
-            image_id = get_map(sessionStorage[user_id]['pt_for_excursions'])
+            image_id = get_map(sessionStorage[user_id]['map_image_with_pt'])
             res['response']['text'] = 's'
             res['response']['card'] = {}
             res['response']['card']['type'] = 'BigImage'
@@ -440,6 +468,7 @@ def handle_dialog(req, res):
             res['response']['card']['image_id'] = image_id
             res['response']['text'] = 'Yes'
             image_to_delete.append(image_id)
+            sessionStorage[user_id]['map_image_with_pt'] = 0
             sessionStorage[user_id]['now_command'] = False
         else:
             res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
@@ -449,6 +478,8 @@ def handle_dialog(req, res):
         if '!выйти' == req['request']['original_utterance'].lower().rstrip().lstrip():
             sessionStorage[user_id]['now_command'] = False
             res['response']['text'] = 'Вы вышли из режима добавления. Возвращайтесь сюда снова!'
+            sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Добавить экскурсию"]
+            res['response']['buttons'] = get_suggests(user_id)
             return
         if sessionStorage[user_id]['stage'] == 1:
             sessionStorage[user_id]['add_excursion'] = {}
@@ -514,7 +545,7 @@ def handle_dialog(req, res):
         elif sessionStorage[user_id]['stage'] == 6:
             excursion_description = check_excursion_description(req)
             if excursion_description[1]:
-                res['response']['text'] = 'Описание успешно добавлено. Теперь введите среднюю продолжительность экскурсии'
+                res['response']['text'] = 'Описание успешно добавлено. Теперь введите среднюю продолжительность экскурсии. Например "4 часа 30 минут"'
                 sessionStorage[user_id]['add_excursion']['excursion_description'] = excursion_description[0]
                 sessionStorage[user_id]['stage'] += 1
             else:
@@ -566,6 +597,8 @@ def handle_dialog(req, res):
             telephone_number = req['request']['original_utterance']
             sessionStorage[user_id]['add_excursion']['telephone_number'] = telephone_number
             res['response']['text'] = 'Отлично! Экскурсия успешно добавлена! Теперь другие пользователи смогут без труда ее найти\n'
+            sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Добавить экскурсию"]
+            res['response']['buttons'] = get_suggests(user_id)
             excursion = Excursion(address=sessionStorage[user_id]['add_excursion']['address'], date=sessionStorage[user_id]['add_excursion']['date'],
                                   name=sessionStorage[user_id]['add_excursion']['name'], excursion_name=sessionStorage[user_id]['add_excursion']['excursion_name'],
                                   excursion_description=sessionStorage[user_id]['add_excursion']['excursion_description'],
