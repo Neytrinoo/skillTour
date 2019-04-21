@@ -154,6 +154,8 @@ def get_city(req):
         if entity['type'] == 'YANDEX.GEO':
             if 'city' in entity['value']:
                 city = entity['value']['city']
+                if 'город' in city.split():
+                    city = ''.join(list(city)[6:])
                 break
             else:
                 return False
@@ -167,7 +169,10 @@ def get_address(req):
             if 'country' in entity['value']:
                 address += entity['value']['country'] + ', '
             if 'city' in entity['value']:
-                address += entity['value']['city'] + ', '
+                city = entity['value']['city']
+                if 'город' in city.split():
+                    city = ''.join(list(city)[6:])
+                address += city + ', '
             else:
                 return False
             if 'street' in entity['value']:
