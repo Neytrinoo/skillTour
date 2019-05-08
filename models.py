@@ -62,6 +62,6 @@ class AudioExcursion(db.Model):
         return check_password_hash(self.password_hash, password)
 
     def __str__(self):
-        result = 'Название аудиоэкскурсии: ' + self.excursion_name + '\n' + 'Место начала аудиоэкскурсии:' + self.address + '\n' + 'Контакты создателя:' + self.contacts + '\n' + \
-                 'Описание аудиоэкскурсии: ' + self.excursion_description
+        result = 'Название аудиоэкскурсии: ' + self.excursion_name + '\n' + 'Место начала аудиоэкскурсии: ' + self.address + '\n' + 'Контакты создателя: ' + self.contacts + '\n' + \
+                 'Описание аудиоэкскурсии:\n' + '"' + self.excursion_description + '"'
         return result

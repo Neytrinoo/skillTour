@@ -30,7 +30,8 @@ help_message = 'Команды для работы с "живыми" экску�
                '"Показать экскурсию номер <номер экскурсии>",\n "Удалить экскурсию номер <номер экскурсии>",\n' \
                '"Редактировать экскурсию номер <номер экскурсии в этом городе>"\nКоманды для аудиоэкскурсий:\n"Показать все аудиоэкскурсии",\n"Добавить аудиоэкскурсию",\n' \
                '"Показать аудиоэкскурсии в <город>"\n"Города, в которых есть аудиоэкскурсии" или "В каких городах есть аудиоэкскурсии?"\nПосле показа аудиоэкскурсий в каком-то ' \
-               'городе, вы можете выполнить следующие команды:\n"Показать аудиоэкскурсию номер <номер экскурсии>"\n"Удалить аудиоэкскурсию номер <номер экскурсии>"'
+               'городе, вы можете выполнить следующие команды:\n"Показать аудиоэкскурсию номер <номер экскурсии>"\n"Удалить аудиоэкскурсию номер <номер экскурсии>"\n' \
+               '"прослушать аудиоэкскурсию номер <номер_экскурсии>"'
 separator = '<1jWz2f3P8ao31BUo>'
 
 
@@ -62,19 +63,24 @@ def search_city(city):
     return [longitude, lattitude, w, h]
 
 
-def get_pt_excursion_in_city(city):
-    excursions = Excursion.query.filter_by(city=city).all()
-    excursions = list(sorted(excursions, key=lambda x: x.date))
-    if not excursions:
-        return False
-    for i in range(len(excursions)):
-        if (datetime.utcnow() - excursions[i].date).days > 1:
-            Excursion.query.filter_by(id=excursions[i].id).delete()
-        else:
-            break
-    db.session.commit()
-    excursions = Excursion.query.filter_by(city=city).all()
-    excursions = list(sorted(excursions, key=lambda x: x.date))
+def get_pt_excursion_in_city(city, what_is):
+    if what_is == 'excursion':
+        excursions = Excursion.query.filter_by(city=city).all()
+        if not excursions:
+            return False
+        excursions = list(sorted(excursions, key=lambda x: x.date))
+        for i in range(len(excursions)):
+            if (datetime.utcnow() - excursions[i].date).days > 1:
+                Excursion.query.filter_by(id=excursions[i].id).delete()
+            else:
+                break
+        db.session.commit()
+        excursions = Excursion.query.filter_by(city=city).all()
+        excursions = list(sorted(excursions, key=lambda x: x.date))
+    if what_is == 'audioexcursion':
+        excursions = AudioExcursion.query.filter_by(city=city).all()
+        if not excursions:
+            return False
     pt = ''
     for i in range(len(excursions)):
         excursions[i].number = i + 1
@@ -110,15 +116,21 @@ def get_map_with_all_excursion(files):
     return image['image']['id']
 
 
-def get_map_image_with_all_excursion():
+def get_map_image_with_all_excursion(what_is):
     map_params = {
         "l": 'sat,skl',
         'pt': ''
     }
-    for excursion in Excursion.query.all():
-        map_params['pt'] += excursion.pt + 'pm2dgl' + '~'
-    if map_params['pt'] == '':
-        return False
+    if what_is == 'excursion':
+        for excursion in Excursion.query.all():
+            map_params['pt'] += excursion.pt + 'pm2dgl' + '~'
+        if map_params['pt'] == '':
+            return False
+    if what_is == 'audioexcursion':
+        for excursion in AudioExcursion.query.all():
+            map_params['pt'] += excursion.pt + 'pm2dgl' + '~'
+        if map_params['pt'] == '':
+            return False
     map_params['pt'] = map_params['pt'][:-1]
     response = requests.get(map_api_server, params=map_params)
     files = {'file': response.content}
@@ -236,7 +248,7 @@ def handle_dialog(req, res):
             password_status = check_password(req)
             if password_status[1]:
                 res['response']['text'] = 'Пароль успешно добавлен. Теперь самая главная часть. Нужно добавить текст для аудиоэкскурсии. Максимально допустимое количество ' \
-                                          'символов в одном сообщении - 1024. Поэтому ввод будет осуществляться по частям. Постарайтесь логически отделить части аудиоэкскурсии ' \
+                                          'символов в одном сообщении - 970. Поэтому ввод будет осуществляться по частям. Постарайтесь логически отделить части аудиоэкскурсии ' \
                                           'друг от друга, так будет комфортнее ее слушать. Если вы добавили весь текст, просто напишите: "конец", и процесс добавления ' \
                                           'экскурсии будет завершен. После этого другие пользователи смогут ее найти и прослушать. Итак, начинайте ввод текста'
                 sessionStorage[user_id]['add_excursion']['password'] = password_status[0]
@@ -261,13 +273,183 @@ def handle_dialog(req, res):
                 db.session.commit()
                 return
             text = req['request']['original_utterance']
-            if len(text) > 1024:
-                res['response']['text'] = 'Максимальная длина в 1024 символов превышена. Разделите, пожалуйста, этот текст на части.'
+            if len(text) > 970:
+                res['response']['text'] = 'Максимальная длина в 970 символов превышена. Разделите, пожалуйста, этот текст на части.'
                 res['response']['buttons'] = get_suggests(user_id)
                 return
             sessionStorage[user_id]['add_excursion']['text_audioexcursion'] += text + separator
             res['response']['text'] = 'Часть аудиоэкскурсии успешно добавлена. Если вы добавили весь текст, напишите "конец". Если нет, то просто продолжайте его вводить.'
             return
+    # Показ всех аудиоэкскурсий
+    if ('показать' in req['request']['nlu']['tokens'] or 'покажи' in req['request']['nlu']['tokens']) and 'все' in req['request']['nlu']['tokens'] and \
+            (('экскурсии' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or 'аудиоэкскурсии' in req['request']['nlu']['tokens']) \
+            and not sessionStorage[user_id]['now_command']:
+        sessionStorage[user_id]['map_image_with_all_audioexcursion'] = get_map_image_with_all_excursion('audioexcursion')
+        if sessionStorage[user_id]['map_image_with_all_audioexcursion']:
+            res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту со всеми аудиоэкскурсиями'
+            sessionStorage[user_id]['now_command'] = 'get all audioexcursion'
+            sessionStorage[user_id]['suggests'] = ["показать", "Помощь"]
+            res['response']['buttons'] = get_suggests(user_id)
+        else:
+            res['response']['text'] = 'Пока что никто не добавил не одной аудиоэкскурсии. Если у вас есть желание провести экскурсию, скорее добавьте ее, сказав' \
+                                      '"Добавить аудиоэкскурсию"!'
+        return
+    if sessionStorage[user_id]['now_command'] == 'get all audioexcursion':
+        if 'показать' in req['request']['nlu']['tokens']:
+            all_excursion_image_id = get_map_with_all_excursion(sessionStorage[user_id]['map_image_with_all_audioexcursion'])
+            res['response']['text'] = 'Теперь вы можете получить все аудиоэкскурсии в конкретном городе, написав "Показать аудиоэкскурсии в название города"'
+            res['response']['card'] = {}
+            res['response']['card']['type'] = 'BigImage'
+            res['response']['card']['title'] = 'Можете получить все экскурсии в конкретном городе, написав "Показать аудиоэкскурсии в <название_города>"'
+            res['response']['card']['image_id'] = all_excursion_image_id
+            image_to_delete.append(all_excursion_image_id)
+            sessionStorage[user_id]['now_command'] = False
+            sessionStorage[user_id]['map_image_with_all_audioexcursion'] = 0
+        else:
+            res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
+        return
+    # Команда показа аудиоэкскурсий в конкретном городе
+    if ('показать' in req['request']['nlu']['tokens'] or 'покажи' in req['request']['nlu']['tokens']) and (
+            ('экскурсии' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсии' in req['request']['nlu']['tokens'])) \
+            and not sessionStorage[user_id]['now_command']:
+        city = get_city(req)
+        if not city:
+            res['response']['text'] = 'Город не распознан. Пожалуйста, повторите ввод'
+            return
+        sessionStorage[user_id]['now_command'] = 'show audioexcursion in city'
+        pt = get_pt_excursion_in_city(city, 'audioexcursion')
+        if pt:
+            sessionStorage[user_id]['map_image_with_pt'] = get_map_image_with_pt(pt)
+            sessionStorage[user_id]['count_excursion'] = len(pt.split('~'))
+            res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту с аудиоэкскурсиями'
+            sessionStorage[user_id]['suggests'] = ["показать", "Помощь"]
+            res['response']['buttons'] = get_suggests(user_id)
+            sessionStorage[user_id]['now_city_audioexcursion'] = city
+        else:
+            res['response']['text'] = 'В данном городе пока что нет аудиоэкскурсий. Но вы можете это исправить, написав "Добавить аудиоэкскурсию"'
+            sessionStorage[user_id]['now_command'] = False
+        return
+    # Процесс показа аудиоэкскурсии в конкретном городе
+    if sessionStorage[user_id]['now_command'] == 'show audioexcursion in city':
+        if 'показать' in req['request']['nlu']['tokens']:
+            image_id = get_map(sessionStorage[user_id]['map_image_with_pt'])
+            res['response'][
+                'text'] = 'Теперь вы можете получить информацию об аудио экскурсии, прослушать или удалить ее с помощью ее номера, который указан на метках. Достаточно ' \
+                          'написать, например: "Покажи аудио экскурсию номер один", и я покажу вам информацию об этой экскурсии. ' \
+                          'Количество аудио экскурсий: ' + str(sessionStorage[user_id]['count_excursion'])
+            sessionStorage[user_id]['count_excursion'] = 0
+            res['response']['card'] = {}
+            res['response']['card']['type'] = 'BigImage'
+            res['response']['card']['title'] = 'Теперь вы можете получить информацию об аудиоэкскурсии, пролушать или удалить ее с помощью ее номера, который указан на метках.'
+            res['response']['card']['image_id'] = image_id
+            image_to_delete.append(image_id)
+            sessionStorage[user_id]['map_image_with_pt'] = 0
+            sessionStorage[user_id]['now_command'] = False
+        else:
+            res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
+        return
+
+    # Показ конкретной аудиоэкскурсии
+    if ('показать' in req['request']['nlu']['tokens'] or 'покажи' in req['request']['nlu']['tokens']) and (
+            ('экскурсии' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсию' in req['request']['nlu']['tokens'])) and 'номер' in \
+            req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
+        if 'now_city_audioexcursion' in sessionStorage[user_id] and sessionStorage[user_id]['now_city_audioexcursion']:
+            number = check_sile(req)
+            if not number:
+                res['response']['text'] = 'Номер аудиоэкскурсии не распознан'
+                return
+            now_excursion = AudioExcursion.query.filter_by(city=sessionStorage[user_id]['now_city_audioexcursion'], number=number).first()
+            if not now_excursion:
+                res['response']['text'] = 'Экскурсии с таким номером нет в данном городе'
+                return
+            res['response']['text'] = str(now_excursion) + '\n' + 'Если хотите прослушать аудиоэкскурсию, просто скажите "прослушать экскурсию номер ' + str(number) + '"'
+            return
+        else:
+            res['response']['text'] = 'Для того, чтобы получить аудиоэкскурсию по номеру, нужно сначало определить, в каком городе мы будем искать аудиоэкскурсии. Для этого ' \
+                                      'сначала напишите: "показать аудиоэкскурсии в <название_города>". Можете узнать, в каких городах они есть, сказав ' \
+                                      '"В каких городах есть аудиоэкскурсии"'
+            return
+    # Запуск процесса прослашивания экскурсии
+    if 'прослушать' in req['request']['nlu']['tokens'] and (
+            ('экскурсии' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсию' in req['request']['nlu']['tokens'])) and 'номер' in \
+            req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
+        if 'now_city_audioexcursion' in sessionStorage[user_id] and sessionStorage[user_id]['now_city_audioexcursion']:
+            number = check_sile(req)
+            if not number:
+                res['response']['text'] = 'Номер аудиоэкскурсии не распознан'
+                return
+            now_excursion = AudioExcursion.query.filter_by(city=sessionStorage[user_id]['now_city_audioexcursion'], number=number).first()
+            sessionStorage[user_id]['now_command'] = 'listen_excursion'
+            sessionStorage[user_id]['stage_listen'] = 0
+            sessionStorage[user_id]['text_to_listen'] = now_excursion.text.split(separator)
+            res['response']['text'] = 'Теперь вы можете начать прослушивать эту экскурсию. Чтобы начать слушать, скажите любую фразу, а чтобы ' \
+                                      'остановить прослушивание, скажите "стоп"'
+        else:
+            res['response']['text'] = 'Вы не выбрали город, чтобы прослушать аудиоэкскурсию. Чтобы это сделать, сначала нужно выбрать город с аудиоэкскурсиями, например, ' \
+                                      '"Покажи экскурсии в Москве", и после этого выберите номер экскурсии, которую хотите прослушать, например, "Прослушать экскурсию номер 3"'
+    # Процесс прослушивания экскурсии
+    if sessionStorage[user_id]['now_command'] == 'listen_excursion':
+        if 'стоп' == req['request']['original_utterance'].lower().rstrip().lstrip() or sessionStorage[user_id]['stage_listen'] >= len(sessionStorage[user_id]['text_to_listen']):
+            sessionStorage[user_id]['now_command'] = False
+            res['response']['text'] = 'Возвращайтесь еще!'
+            sessionStorage[user_id]['stage_listen'] = 0
+            sessionStorage[user_id]['text_to_listen'] = False
+            sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Показать все аудиоэкскурсии", "Добавить экскурсию"]
+            res['response']['buttons'] = get_suggests(user_id)
+            return
+        res['response']['text'] = sessionStorage[user_id]['text_to_listen'][sessionStorage[user_id]['stage_listen']] + '\nСкажите "дальше", чтобы продолжить прослушивание'
+        sessionStorage[user_id]['stage_listen'] += 1
+        return
+
+    if ('города' in req['request']['nlu']['tokens'] or 'городах' in req['request']['nlu']['tokens']) and (
+            ('экскурсии' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсии' in req['request']['nlu']['tokens'])):
+        excursions = AudioExcursion.query.all()
+        cities = []
+        for excurs in excursions:
+            cities.append(excurs.city)
+        cities = list(set(cities))
+        if cities:
+            res['response']['text'] = 'Вот города, в которых есть аудиоэкскурсии:\n' + '\n'.join(cities)
+        else:
+            res['response']['text'] = 'Пока что никто не добавил не одной аудиоэкскурсии. Если у вас есть желание это сделать, скорее добавьте ее, дав команду ' \
+                                      '"Добавить аудиоэкскурсию"!'
+        return
+
+    # Удаление аудиоэкскурсии
+    if 'удалить' in req['request']['nlu']['tokens'] and (
+            ('экскурсию' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсию' in req['request']['nlu']['tokens'])) and 'номер' in \
+            req['request']['nlu']['tokens']:
+        if 'now_city_audioexcursion' in sessionStorage[user_id]:
+            number = check_sile(req)
+            if not number:
+                res['response']['text'] = 'Номер аудиоэкскурсии не распознан'
+                return
+            excursion_to_delete = AudioExcursion.query.filter_by(city=sessionStorage[user_id]['now_city_audioexcursion'], number=number).first()
+            if not excursion_to_delete:
+                res['response']['text'] = 'Аудиоэкскурсии с таким номером в данном городе не существует'
+                return
+            res['response']['text'] = 'Чтобы удалить данную аудиоэкскурсию, вам нужно подтвердить, что вы ее создатель.' \
+                                      ' Для этого введите пароль, который вы указывали при добавлении. Чтобы выйти из удаления, напишите "!выйти"'
+            sessionStorage[user_id]['delete_excursion'] = [sessionStorage[user_id]['now_city_audioexcursion'], number]
+            sessionStorage[user_id]['now_command'] = 'delete audioexcursion'
+            return
+
+    if sessionStorage[user_id]['now_command'] == 'delete audioexcursion':
+        password = req['request']['original_utterance']
+        if password == '!выйти':
+            res['response']['text'] = 'Вы успешно вышли из режима удаления'
+            sessionStorage[user_id]['now_command'] = False
+            return
+        if not AudioExcursion.query.filter_by(city=sessionStorage[user_id]['delete_excursion'][0], number=sessionStorage[user_id]['delete_excursion'][1]).first().check_password(
+                password):
+            res['response']['text'] = 'Пароль не распознан. Пожалуйста, повторите ввод'
+        else:
+            AudioExcursion.query.filter_by(city=sessionStorage[user_id]['delete_excursion'][0], number=sessionStorage[user_id]['delete_excursion'][1]).delete()
+            db.session.commit()
+            res['response']['text'] = 'Аудиоэкскурсия успешно удалена. Добавьте новую, если хотите'
+            sessionStorage[user_id]['now_command'] = False
+        return
+
     # Обработка команд с живыми экскурсиями
     if ('города' in req['request']['nlu']['tokens'] or 'городах' in req['request']['nlu']['tokens']) and 'экскурсии' in req['request']['nlu']['tokens']:
         excursions = Excursion.query.all()
@@ -531,7 +713,7 @@ def handle_dialog(req, res):
     # Комманда показа всех экскурсий
     if ('показать' in req['request']['nlu']['tokens'] or 'покажи' in req['request']['nlu']['tokens']) and 'все' in req['request']['nlu']['tokens'] and 'экскурсии' in \
             req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
-        sessionStorage[user_id]['map_image_with_all_excursion'] = get_map_image_with_all_excursion()
+        sessionStorage[user_id]['map_image_with_all_excursion'] = get_map_image_with_all_excursion('excursion')
         if sessionStorage[user_id]['map_image_with_all_excursion']:
             res['response']['text'] = 'Напишите "показать", если вы хотите увидеть карту со всеми экскурсиями'
             sessionStorage[user_id]['now_command'] = 'get all excursion'
@@ -555,7 +737,7 @@ def handle_dialog(req, res):
         else:
             res['response']['text'] = 'Команда не распознана. Пожалуйста, повторите ввод'
         return
-    # Комманда показа экскурсий в конкретном городе
+    # Команда показа экскурсий в конкретном городе
     if ('показать' in req['request']['nlu']['tokens'] or 'покажи' in req['request']['nlu']['tokens']) and 'экскурсии' in req['request']['nlu']['tokens'] and not \
             sessionStorage[user_id]['now_command']:
         city = get_city(req)
@@ -563,7 +745,7 @@ def handle_dialog(req, res):
             res['response']['text'] = 'Город не распознан. Пожалуйста, повторите ввод'
             return
         sessionStorage[user_id]['now_command'] = 'show excursion in city'
-        pt = get_pt_excursion_in_city(city)
+        pt = get_pt_excursion_in_city(city, 'excursion')
         if pt:
             sessionStorage[user_id]['map_image_with_pt'] = get_map_image_with_pt(pt)
             sessionStorage[user_id]['count_excursion'] = len(pt.split('~'))

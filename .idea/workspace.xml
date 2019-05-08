@@ -1,17 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="BookmarkManager">
-    <bookmark url="file://$PROJECT_DIR$/flask_app.py" description="if sessionStorage[user_id]['stage'] == 1:" line="604" />
-    <bookmark url="file://$PROJECT_DIR$/flask_app.py" description="if sessionStorage[user_id]['now_command'] == 'add ..." line="176" />
+    <bookmark url="file://$PROJECT_DIR$/flask_app.py" description="if sessionStorage[user_id]['stage'] == 1:" line="786" />
+    <bookmark url="file://$PROJECT_DIR$/flask_app.py" description="res['response']['buttons'] = get_suggests(user_id)" line="291" />
   </component>
   <component name="ChangeListManager">
     <list default="true" id="291cf7bc-8d46-4b0d-9dd1-27f72c428153" name="Default Changelist" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app.db" beforeDir="false" afterPath="$PROJECT_DIR$/app.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/checks.py" beforeDir="false" afterPath="$PROJECT_DIR$/checks.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flask_app.py" beforeDir="false" afterPath="$PROJECT_DIR$/flask_app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/presentation.pptx" beforeDir="false" afterPath="$PROJECT_DIR$/presentation.pptx" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -45,8 +41,8 @@
             <file pinned="false" current-in-tab="true">
               <entry file="file://$PROJECT_DIR$/models.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="629">
-                    <caret line="56" lean-forward="true" selection-start-line="56" selection-end-line="56" />
+                  <state relative-caret-position="782">
+                    <caret line="65" column="85" selection-start-line="65" selection-start-column="85" selection-end-line="65" selection-end-column="85" />
                     <folding>
                       <element signature="e#0#29#0" expanded="true" />
                     </folding>
@@ -64,8 +60,8 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/flask_app.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="292">
-              <caret line="713" column="21" lean-forward="true" selection-start-line="713" selection-start-column="21" selection-end-line="713" selection-end-column="21" />
+            <state relative-caret-position="145">
+              <caret line="400" column="34" lean-forward="true" selection-start-line="400" selection-start-column="34" selection-end-line="400" selection-end-column="34" />
               <folding>
                 <element signature="e#0#32#0" expanded="true" />
               </folding>
@@ -295,12 +291,12 @@
       <workItem from="1555837762151" duration="3964000" />
       <workItem from="1555940663751" duration="265000" />
       <workItem from="1557254008350" duration="1078000" />
-      <workItem from="1557313857574" duration="7493000" />
+      <workItem from="1557313857574" duration="14813000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="103274000" />
+    <option name="totallyTimeSpent" value="110594000" />
   </component>
   <component name="ToolWindowManager">
     <frame x="-8" y="-8" width="1936" height="1056" extended-state="6" />
@@ -440,8 +436,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/models.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="629">
-          <caret line="56" lean-forward="true" selection-start-line="56" selection-end-line="56" />
+        <state relative-caret-position="782">
+          <caret line="65" column="85" selection-start-line="65" selection-start-column="85" selection-end-line="65" selection-end-column="85" />
           <folding>
             <element signature="e#0#29#0" expanded="true" />
           </folding>
@@ -450,8 +446,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/flask_app.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="292">
-          <caret line="713" column="21" lean-forward="true" selection-start-line="713" selection-start-column="21" selection-end-line="713" selection-end-column="21" />
+        <state relative-caret-position="145">
+          <caret line="400" column="34" lean-forward="true" selection-start-line="400" selection-start-column="34" selection-end-line="400" selection-end-column="34" />
           <folding>
             <element signature="e#0#32#0" expanded="true" />
           </folding>
