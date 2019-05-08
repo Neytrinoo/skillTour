@@ -47,9 +47,16 @@ def check_excursion_duration(req):
 
 def check_excursion_description(req):
     excursion_description = req['request']['original_utterance']
-    if len(excursion_description) > 1500:
-        return ['Превышено допустимое количество символов: 1500. Пожалуйста, повторите ввод', False]
+    if len(excursion_description) > 1024:
+        return ['Превышено допустимое количество символов: 1024. Пожалуйста, повторите ввод', False]
     return [excursion_description, True]
+
+
+def check_contact_author(req):
+    excursion_author = req['request']['original_utterance']
+    if len(excursion_author) > 100:
+        return ['Превышено допустимое количество символов: 100. Пожалуйста, повторите ввод', False]
+    return [excursion_author, True]
 
 
 # Проверка введенного названия экскурсии на длину
@@ -85,7 +92,7 @@ def check_password(req):
     password = req['request']['original_utterance']
     try:
         if len(password) < 8:
-            return ['Пароль слишком короткий. Повторите ввод', False]
+            return ['Пароль слишком короткий. Нужно минимум 8 символов. Повторите ввод', False]
         for symbol in password:
             if symbol not in valid_characters and not symbol.isdigit():
                 return ['В пароле присутствуют недопустимые символы. Повторите ввод', False]

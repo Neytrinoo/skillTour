@@ -18,12 +18,20 @@ sessionStorage = {}
 map_api_server = "http://static-maps.yandex.ru/1.x/"
 skill_image_url = 'https://dialogs.yandex.net/api/v1/skills/c02896ed-78df-4558-a5a7-4a3a837e3db4/images'
 image_to_delete = []
-help_message = 'Привет! Сейчас ты можешь найти себе экскурсию в любом месте, или сам добавить экскурсию! У каждой экскурсии есть уникальный номер. ' \
-               'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
-               'добавлении. Вот что я могу:\n"Показать все экскурсии",\n"Добавить экскурсию"\n' \
-               '"Показать экскурсии в <город>",\nПосле показа экскурсий в каком-то городе, вы можете выполнить следующие команды: ' \
+hello_message = 'Привет! Сейчас вы можете найти себе экскурсию в любом месте, или сами добавить экскурсию! У каждой экскурсии есть уникальный номер. ' \
+                'По нему ее можно получить, отредактировать и удалить. Для редактирования и удаления нужно знать уникальный пароль, который задается при ' \
+                'добавлении. Вы можете найти тут "живую" эксурсию и аудиоэкскурсию. "Живая" экскурсия - эта экскурсия, которую проводит экскурсовод. Тут вы можете найти ' \
+                'такие экскурсии, или же добавить, и другие люди смогут к вам прийти. Аудиоэкскурсия - экскурсия без экскурсовода. Вы идете по улице, а я буду рассказывать вам ' \
+                'о достопримечательностях в городе. Тут вы также можете добавить аудиоэкскурсии, или прослушать доступные. Чтобы увидеть доступные команды, напишите "помощь"'
+help_message = 'Команды для работы с "живыми" экскурсиями:' \
+               '\n"Показать все экскурсии",\n"Добавить экскурсию"\n' \
+               '"Показать экскурсии в <город>"\n"Города, в которых есть экскурсии" или "В каких городах есть экскурсии?",\nПосле показа экскурсий в каком-то городе, ' \
+               'вы можете выполнить следующие команды:\n' \
                '"Показать экскурсию номер <номер экскурсии>",\n "Удалить экскурсию номер <номер экскурсии>",\n' \
-               '"Редактировать экскурсию номер <номер экскурсии в этом городе>",\n "Города, в которых есть экскурсии" или "В каких городах есть экскурсии?"'
+               '"Редактировать экскурсию номер <номер экскурсии в этом городе>"\nКоманды для аудиоэкскурсий:\n"Показать все аудиоэкскурсии",\n"Добавить аудиоэкскурсию",\n' \
+               '"Показать аудиоэкскурсии в <город>"\n"Города, в которых есть аудиоэкскурсии" или "В каких городах есть аудиоэкскурсии?"\nПосле показа аудиоэкскурсий в каком-то ' \
+               'городе, вы можете выполнить следующие команды:\n"Показать аудиоэкскурсию номер <номер экскурсии>"\n"Удалить аудиоэкскурсию номер <номер экскурсии>"'
+separator = '<1jWz2f3P8ao31BUo>'
 
 
 @app.route('/post', methods=['POST'])
@@ -134,14 +142,15 @@ def handle_dialog(req, res):
             ]
         }
         sessionStorage[user_id]['now_command'] = False
-        res['response']['text'] = help_message
+        res['response']['text'] = hello_message
         res['response']['buttons'] = get_suggests(user_id)
         return
     else:
         if not sessionStorage[user_id]['now_command']:
             sessionStorage[user_id]['suggests'] = ["Помощь",
                                                    "Показать все экскурсии",
-                                                   "Добавить экскурсию"]
+                                                   "Добавить экскурсию",
+                                                   "Добавить аудиоэкскурсию"]
         else:
             sessionStorage[user_id]['suggests'] = ["Помощь"]
         res['response']['buttons'] = get_suggests(user_id)
@@ -153,6 +162,113 @@ def handle_dialog(req, res):
     if 'помощь' == req['request']['original_utterance'].lower():
         res['response']['text'] = help_message
         return
+    # Обработка команд с аудиоэкскурсиями
+
+    # Добавление аудиоэкскурсии
+    if not sessionStorage[user_id]['now_command'] and ('добавить' in req['request']['nlu']['tokens'] and (
+            'аудиоэкскурсию' in req['request']['nlu']['tokens'] or ('аудио' in req['request']['nlu']['tokens'] and 'экскурсии' in req['request']['nlu']['tokens']))):
+        sessionStorage[user_id]['now_command'] = 'add audioexcursion'
+        sessionStorage[user_id]['stage'] = 1
+        res['response']['text'] = 'Укажите точный адрес начала аудиоэкскурсии, чтобы другие пользователи знали, с какого места можно начинать слушать. ' \
+                                  'Для того, чтобы выйти из режима добавления, напишите "!выйти"'
+        sessionStorage[user_id]['suggests'] = ["Помощь"]
+        res['response']['buttons'] = get_suggests(user_id)
+        return
+    if sessionStorage[user_id]['now_command'] == 'add audioexcursion':
+        if '!выйти' == req['request']['original_utterance'].lower().rstrip().lstrip():
+            sessionStorage[user_id]['now_command'] = False
+            res['response']['text'] = 'Вы вышли из режима добавления. Возвращайтесь сюда снова!'
+            sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Добавить экскурсию", "Добавить аудиоэкскурсию"]
+            res['response']['buttons'] = get_suggests(user_id)
+            return
+        if sessionStorage[user_id]['stage'] == 1:
+            sessionStorage[user_id]['add_excursion'] = {}
+            address = get_address(req)
+            if address:
+                res['response']['text'] = 'Ваш адрес распознан. Это ' + address[0] + '. Теперь введите ваше ФИО'
+                sessionStorage[user_id]['add_excursion']['address'] = address[0]
+                sessionStorage[user_id]['add_excursion']['city'] = address[1]
+                sessionStorage[user_id]['add_excursion']['pt'] = get_pt_from_address(address[0])
+                sessionStorage[user_id]['stage'] += 1
+            else:
+                res['response']['text'] = 'Введенный адрес некорректен или недостаточно точен. Повторите попытку'
+            return
+        if sessionStorage[user_id]['stage'] == 2:
+            name = check_name(req)
+            if name[1]:
+                res['response']['text'] = 'Личные данные распознаны. Теперь введите название вашей аудиоэкскурсии. Например, "Прага. Старый город"'
+                sessionStorage[user_id]['add_excursion']['name'] = name[0]
+                sessionStorage[user_id]['stage'] += 1
+            else:
+                res['response']['text'] = name[0]
+            return
+        if sessionStorage[user_id]['stage'] == 3:
+            excursion_name = check_excursion_name(req)
+            if excursion_name[1]:
+                res['response']['text'] = 'Название экскурсии успешно добавлено. Теперь кратко опишите, о чем ваша аудиоэкскурсия. Какие места будут затронуты, ' \
+                                          'уникальные особенности вашей аудиоэкскурсии и т.д.'
+                sessionStorage[user_id]['add_excursion']['excursion_name'] = excursion_name[0]
+                sessionStorage[user_id]['stage'] += 1
+            else:
+                res['response']['text'] = excursion_name[0]
+            return
+        if sessionStorage[user_id]['stage'] == 4:
+            excursion_description = check_excursion_description(req)
+            if excursion_description[1]:
+                res['response']['text'] = 'Описание успешно добавлено. Теперь введите ваши контакты, будь то номер телефона, телеграм, e-mail. Нужно для того, чтобы другие ' \
+                                          'пользователи могли оставить вам отзыв об аудиоэкскурсии. Если не хотите оставлять контакты, ' \
+                                          'напишите любой текст, например, "контактов нет"'
+                sessionStorage[user_id]['add_excursion']['excursion_description'] = excursion_description[0]
+                sessionStorage[user_id]['stage'] += 1
+            else:
+                res['response']['text'] = excursion_description[0]
+            return
+        if sessionStorage[user_id]['stage'] == 5:
+            contacts = check_contact_author(req)
+            if contacts[1]:
+                res['response']['text'] = 'Контакты успешно добавлены. Теперь введите пароль для аудиоэкскурсии, чтобы при желании вы могли ее удалить.'
+                sessionStorage[user_id]['add_excursion']['contacts'] = contacts[0]
+                sessionStorage[user_id]['stage'] += 1
+            else:
+                res['response']['text'] = contacts[0]
+            return
+        if sessionStorage[user_id]['stage'] == 6:
+            password_status = check_password(req)
+            if password_status[1]:
+                res['response']['text'] = 'Пароль успешно добавлен. Теперь самая главная часть. Нужно добавить текст для аудиоэкскурсии. Максимально допустимое количество ' \
+                                          'символов в одном сообщении - 1024. Поэтому ввод будет осуществляться по частям. Постарайтесь логически отделить части аудиоэкскурсии ' \
+                                          'друг от друга, так будет комфортнее ее слушать. Если вы добавили весь текст, просто напишите: "конец", и процесс добавления ' \
+                                          'экскурсии будет завершен. После этого другие пользователи смогут ее найти и прослушать. Итак, начинайте ввод текста'
+                sessionStorage[user_id]['add_excursion']['password'] = password_status[0]
+                sessionStorage[user_id]['stage'] += 1
+                sessionStorage[user_id]['add_excursion']['text_audioexcursion'] = ''
+            else:
+                res['response']['text'] = password_status[0]
+            return
+        if sessionStorage[user_id]['stage'] == 7:
+            if 'конец' == req['request']['original_utterance'].lower().rstrip().lstrip():
+                sessionStorage[user_id]['now_command'] = False
+                res['response']['text'] = 'Аудиоэкскурсия успешно добавлена. Теперь любой человек сможет ее прослушать. Ура!'
+                sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Добавить экскурсию", "Добавить аудиоэкскурсию"]
+                res['response']['buttons'] = get_suggests(user_id)
+                excursion = AudioExcursion(address=sessionStorage[user_id]['add_excursion']['address'], name=sessionStorage[user_id]['add_excursion']['name'],
+                                           excursion_name=sessionStorage[user_id]['add_excursion']['excursion_name'],
+                                           excursion_description=sessionStorage[user_id]['add_excursion']['excursion_description'],
+                                           contacts=sessionStorage[user_id]['add_excursion']['contacts'], city=sessionStorage[user_id]['add_excursion']['city'],
+                                           pt=sessionStorage[user_id]['add_excursion']['pt'], text=sessionStorage[user_id]['add_excursion']['text_audioexcursion'])
+                excursion.set_password(sessionStorage[user_id]['add_excursion']['password'])
+                db.session.add(excursion)
+                db.session.commit()
+                return
+            text = req['request']['original_utterance']
+            if len(text) > 1024:
+                res['response']['text'] = 'Максимальная длина в 1024 символов превышена. Разделите, пожалуйста, этот текст на части.'
+                res['response']['buttons'] = get_suggests(user_id)
+                return
+            sessionStorage[user_id]['add_excursion']['text_audioexcursion'] += text + separator
+            res['response']['text'] = 'Часть аудиоэкскурсии успешно добавлена. Если вы добавили весь текст, напишите "конец". Если нет, то просто продолжайте его вводить.'
+            return
+    # Обработка команд с живыми экскурсиями
     if ('города' in req['request']['nlu']['tokens'] or 'городах' in req['request']['nlu']['tokens']) and 'экскурсии' in req['request']['nlu']['tokens']:
         excursions = Excursion.query.all()
         cities = []
@@ -600,6 +716,9 @@ def handle_dialog(req, res):
                 return
         elif sessionStorage[user_id]['stage'] == 10:
             telephone_number = req['request']['original_utterance']
+            if len(telephone_number) > 100:
+                res['response']['text'] = 'Слишком длинный номер. Максимальная длина - 100 символов. Пожалуйста, повторите ввод'
+                return
             sessionStorage[user_id]['add_excursion']['telephone_number'] = telephone_number
             res['response']['text'] = 'Отлично! Экскурсия успешно добавлена! Теперь другие пользователи смогут без труда ее найти\n'
             sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Добавить экскурсию"]
@@ -638,4 +757,4 @@ def get_suggests(user_id):
 if __name__ == '__main__':
     app.run()
 
-from models import Excursion
+from models import Excursion, AudioExcursion

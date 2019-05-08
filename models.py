@@ -40,3 +40,28 @@ class Excursion(db.Model):
             currency = '$'
         result += 'Цена: ' + str(self.sile) + ' ' + currency + '\n' + 'Телефон экскурсовода: ' + str(self.telephone_number)
         return result
+
+
+class AudioExcursion(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    address = db.Column(db.String(300))
+    password_hash = db.Column(db.String(400))
+    name = db.Column(db.String(150))
+    excursion_name = db.Column(db.String(200))
+    excursion_description = db.Column(db.String(500))
+    number = db.Column(db.Integer)
+    contacts = db.Column(db.String(100))
+    city = db.Column(db.String(100))
+    pt = db.Column(db.String(100))
+    text = db.Column(db.String())
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def __str__(self):
+        result = 'Название аудиоэкскурсии: ' + self.excursion_name + '\n' + 'Место начала аудиоэкскурсии:' + self.address + '\n' + 'Контакты создателя:' + self.contacts + '\n' + \
+                 'Описание аудиоэкскурсии: ' + self.excursion_description
+        return result
