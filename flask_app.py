@@ -160,6 +160,7 @@ def handle_dialog(req, res):
     else:
         if not sessionStorage[user_id]['now_command']:
             sessionStorage[user_id]['suggests'] = ["Помощь",
+                                                   "Показать все аудиоэкскурсии",
                                                    "Показать все экскурсии",
                                                    "Добавить экскурсию",
                                                    "Добавить аудиоэкскурсию"]
@@ -351,7 +352,7 @@ def handle_dialog(req, res):
 
     # Показ конкретной аудиоэкскурсии
     if ('показать' in req['request']['nlu']['tokens'] or 'покажи' in req['request']['nlu']['tokens']) and (
-            ('экскурсии' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсию' in req['request']['nlu']['tokens'])) and 'номер' in \
+            ('экскурсию' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсию' in req['request']['nlu']['tokens'])) and 'номер' in \
             req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
         if 'now_city_audioexcursion' in sessionStorage[user_id] and sessionStorage[user_id]['now_city_audioexcursion']:
             number = check_sile(req)
@@ -362,7 +363,7 @@ def handle_dialog(req, res):
             if not now_excursion:
                 res['response']['text'] = 'Экскурсии с таким номером нет в данном городе'
                 return
-            res['response']['text'] = str(now_excursion) + '\n' + 'Если хотите прослушать аудиоэкскурсию, просто скажите "прослушать экскурсию номер ' + str(number) + '"'
+            res['response']['text'] = str(now_excursion) + '\n' + 'Если хотите прослушать аудиоэкскурсию, просто скажите "прослушать аудиоэкскурсию номер ' + str(number) + '"'
             return
         else:
             res['response']['text'] = 'Для того, чтобы получить аудиоэкскурсию по номеру, нужно сначало определить, в каком городе мы будем искать аудиоэкскурсии. Для этого ' \
@@ -371,7 +372,7 @@ def handle_dialog(req, res):
             return
     # Запуск процесса прослашивания экскурсии
     if 'прослушать' in req['request']['nlu']['tokens'] and (
-            ('экскурсии' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсию' in req['request']['nlu']['tokens'])) and 'номер' in \
+            ('экскурсию' in req['request']['nlu']['tokens'] and 'аудио' in req['request']['nlu']['tokens']) or ('аудиоэкскурсию' in req['request']['nlu']['tokens'])) and 'номер' in \
             req['request']['nlu']['tokens'] and not sessionStorage[user_id]['now_command']:
         if 'now_city_audioexcursion' in sessionStorage[user_id] and sessionStorage[user_id]['now_city_audioexcursion']:
             number = check_sile(req)
@@ -387,18 +388,25 @@ def handle_dialog(req, res):
         else:
             res['response']['text'] = 'Вы не выбрали город, чтобы прослушать аудиоэкскурсию. Чтобы это сделать, сначала нужно выбрать город с аудиоэкскурсиями, например, ' \
                                       '"Покажи экскурсии в Москве", и после этого выберите номер экскурсии, которую хотите прослушать, например, "Прослушать экскурсию номер 3"'
+        return
     # Процесс прослушивания экскурсии
     if sessionStorage[user_id]['now_command'] == 'listen_excursion':
-        if 'стоп' == req['request']['original_utterance'].lower().rstrip().lstrip() or sessionStorage[user_id]['stage_listen'] >= len(sessionStorage[user_id]['text_to_listen']):
+        if 'стоп' == req['request']['original_utterance'].lower().rstrip().lstrip() or sessionStorage[user_id]['stage_listen'] >= len(
+                sessionStorage[user_id]['text_to_listen']) - 1:
             sessionStorage[user_id]['now_command'] = False
             res['response']['text'] = 'Возвращайтесь еще!'
+            if sessionStorage[user_id]['stage_listen'] >= len(sessionStorage[user_id]['text_to_listen']) - 1:
+                res['response']['text'] = 'Аудиоэкскурсия закончена. Возвращайтесь еще!'
             sessionStorage[user_id]['stage_listen'] = 0
             sessionStorage[user_id]['text_to_listen'] = False
             sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Показать все аудиоэкскурсии", "Добавить экскурсию"]
             res['response']['buttons'] = get_suggests(user_id)
             return
-        res['response']['text'] = sessionStorage[user_id]['text_to_listen'][sessionStorage[user_id]['stage_listen']] + '\nСкажите "дальше", чтобы продолжить прослушивание'
-        sessionStorage[user_id]['stage_listen'] += 1
+        if 'дальше' == req['request']['original_utterance'].lower().rstrip().lstrip():
+            res['response']['text'] = sessionStorage[user_id]['text_to_listen'][sessionStorage[user_id]['stage_listen']] + '\nСкажите "дальше", чтобы продолжить прослушивание'
+            sessionStorage[user_id]['stage_listen'] += 1
+        else:
+            res['response']['text'] = 'Скажите "дальше", чтобы продолжить прослушивание'
         return
 
     if ('города' in req['request']['nlu']['tokens'] or 'городах' in req['request']['nlu']['tokens']) and (
