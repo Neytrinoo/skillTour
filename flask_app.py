@@ -383,7 +383,9 @@ def handle_dialog(req, res):
             sessionStorage[user_id]['now_command'] = 'listen_excursion'
             sessionStorage[user_id]['stage_listen'] = 0
             sessionStorage[user_id]['text_to_listen'] = now_excursion.text.split(separator)
-            res['response']['text'] = 'Теперь вы можете начать прослушивать эту экскурсию. Чтобы начать слушать, скажите любую фразу, а чтобы ' \
+            sessionStorage[user_id]['suggests'] = ["Помощь", "Дальше", "Стоп"]
+            res['response']['buttons'] = get_suggests(user_id)
+            res['response']['text'] = 'Теперь вы можете начать прослушивать эту экскурсию. Чтобы начать слушать, скажите "дальше", а чтобы ' \
                                       'остановить прослушивание, скажите "стоп"'
         else:
             res['response']['text'] = 'Вы не выбрали город, чтобы прослушать аудиоэкскурсию. Чтобы это сделать, сначала нужно выбрать город с аудиоэкскурсиями, например, ' \
@@ -397,16 +399,20 @@ def handle_dialog(req, res):
             res['response']['text'] = 'Возвращайтесь еще!'
             if sessionStorage[user_id]['stage_listen'] >= len(sessionStorage[user_id]['text_to_listen']) - 1:
                 res['response']['text'] = 'Аудиоэкскурсия закончена. Возвращайтесь еще!'
-            sessionStorage[user_id]['stage_listen'] = 0
+            sessionStorage[user_id]['stage_listen'] = -1
             sessionStorage[user_id]['text_to_listen'] = False
             sessionStorage[user_id]['suggests'] = ["Помощь", "Показать все экскурсии", "Показать все аудиоэкскурсии", "Добавить экскурсию"]
             res['response']['buttons'] = get_suggests(user_id)
             return
         if 'дальше' == req['request']['original_utterance'].lower().rstrip().lstrip():
-            res['response']['text'] = sessionStorage[user_id]['text_to_listen'][sessionStorage[user_id]['stage_listen']] + '\nСкажите "дальше", чтобы продолжить прослушивание'
+            res['response']['text'] = sessionStorage[user_id]['text_to_listen'][sessionStorage[user_id]['stage_listen']] + '\nСкажите "дальше" или "повторить"'
             sessionStorage[user_id]['stage_listen'] += 1
+        elif 'повторить' == req['request']['original_utterance'].lower().rstrip().lstrip():
+            res['response']['text'] = sessionStorage[user_id]['text_to_listen'][sessionStorage[user_id]['stage_listen'] - 1] + '\nСкажите "дальше" или "повторить"'
         else:
-            res['response']['text'] = 'Скажите "дальше", чтобы продолжить прослушивание'
+            res['response']['text'] = 'Скажите "дальше", чтобы продолжить прослушивание, или "повторить", чтобы услышать часть аудио экскурсии еще раз'
+        sessionStorage[user_id]['suggests'] = ["Помощь", "Дальше", "Повторить"]
+        res['response']['buttons'] = get_suggests(user_id)
         return
 
     if ('города' in req['request']['nlu']['tokens'] or 'городах' in req['request']['nlu']['tokens']) and (
